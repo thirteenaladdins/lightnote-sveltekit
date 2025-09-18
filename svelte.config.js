@@ -17,6 +17,9 @@ const config = {
 		}),
 		paths: {
 			base: process.env.NODE_ENV === 'production' ? '/lightnote-sveltekit' : '',
+		},
+		prerender: {
+			handleHttpError: 'warn'
 		}
 	}
 };
