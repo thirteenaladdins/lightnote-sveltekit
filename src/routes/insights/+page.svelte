@@ -75,7 +75,7 @@
 
 		// Simple weekly digest
 		const total = entries.length;
-		const avgMood = entries.reduce((sum, e) => sum + e.compound, 0) / total;
+		const avgMood = total > 0 ? entries.reduce((sum, e) => sum + (e.compound || 0), 0) / total : 0;
 		const moodLabel = avgMood >= 0.05 ? 'positive' : avgMood <= -0.05 ? 'negative' : 'neutral';
 
 		// Get top tags
@@ -86,7 +86,7 @@
 			.slice(0, 5);
 
 		// Get notable entries
-		const sortedByMood = [...entries].sort((a, b) => a.compound - b.compound);
+		const sortedByMood = [...entries].sort((a, b) => (a.compound || 0) - (b.compound || 0));
 		const worst = sortedByMood[0];
 		const best = sortedByMood[sortedByMood.length - 1];
 
@@ -95,11 +95,11 @@
 			<div class="subtle">${digestDates}</div>
 			<div class="digest-meta">
 				<div><b>Entries: ${total}</b></div>
-				<div><b>Mood: ${avgMood.toFixed(2)} (${moodLabel})</b></div>
+				<div><b>Mood: ${(avgMood || 0).toFixed(2)} (${moodLabel})</b></div>
 			</div>
 			${topTags.length ? `<div class="theme-line">${topTags.map(([tag, count]) => `<span class="theme-pill">#${tag} (${count})</span>`).join('')}</div>` : ''}
-			${worst ? `<div class="notable neg">Most negative: "${worst.text.slice(0, 120)}${worst.text.length > 120 ? '...' : ''}" (${worst.compound.toFixed(2)})</div>` : ''}
-			${best ? `<div class="notable pos">Most positive: "${best.text.slice(0, 120)}${best.text.length > 120 ? '...' : ''}" (${best.compound.toFixed(2)})</div>` : ''}
+			${worst && worst.text ? `<div class="notable neg">Most negative: "${worst.text.slice(0, 120)}${worst.text.length > 120 ? '...' : ''}" (${(worst.compound || 0).toFixed(2)})</div>` : ''}
+			${best && best.text ? `<div class="notable pos">Most positive: "${best.text.slice(0, 120)}${best.text.length > 120 ? '...' : ''}" (${(best.compound || 0).toFixed(2)})</div>` : ''}
 		`;
 	}
 
