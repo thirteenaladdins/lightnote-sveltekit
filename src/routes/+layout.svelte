@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
+	import { base } from '$app/paths';
 	import '../app.css';
 	import '$lib/utils/console-debug.js';
 
@@ -109,14 +110,14 @@
 			<h1>LightNote</h1>
 			<div class="spacer"></div>
 			<nav class="nav desktop-nav">
-				<a href="/" class="nav-link" class:active={$page.route.id === '/'}>Entries</a>
-				<a href="/analytics" class="nav-link" class:active={$page.route.id === '/analytics'}
+				<a href="{base}/" class="nav-link" class:active={$page.route.id === '/'}>Entries</a>
+				<a href="{base}/analytics" class="nav-link" class:active={$page.route.id === '/analytics'}
 					>Analytics</a
 				>
-				<a href="/insights" class="nav-link" class:active={$page.route.id === '/insights'}
+				<a href="{base}/insights" class="nav-link" class:active={$page.route.id === '/insights'}
 					>Insights</a
 				>
-				<a href="/settings" class="nav-link" class:active={$page.route.id === '/settings'}
+				<a href="{base}/settings" class="nav-link" class:active={$page.route.id === '/settings'}
 					>Settings</a
 				>
 			</nav>
@@ -156,25 +157,25 @@
 		></div>
 		<nav class="mobile-nav" class:open={mobileMenuOpen}>
 			<a
-				href="/"
+				href="{base}/"
 				class="mobile-nav-link"
 				class:active={$page.route.id === '/'}
 				on:click={closeMobileMenu}>Entries</a
 			>
 			<a
-				href="/analytics"
+				href="{base}/analytics"
 				class="mobile-nav-link"
 				class:active={$page.route.id === '/analytics'}
 				on:click={closeMobileMenu}>Analytics</a
 			>
 			<a
-				href="/insights"
+				href="{base}/insights"
 				class="mobile-nav-link"
 				class:active={$page.route.id === '/insights'}
 				on:click={closeMobileMenu}>Insights</a
 			>
 			<a
-				href="/settings"
+				href="{base}/settings"
 				class="mobile-nav-link"
 				class:active={$page.route.id === '/settings'}
 				on:click={closeMobileMenu}>Settings</a
