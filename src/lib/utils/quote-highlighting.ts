@@ -1,13 +1,6 @@
-// quote-highlighting.ts — Bulletproof quote highlighting using text normalization
+// quote-highlighting.ts — Simplified quote highlighting for span-based system
 
 import type { EntryInsight } from '../types/entry.js';
-import { 
-  normalizeForStorage, 
-  findAllRangesByQuotes, 
-  textToSegments, 
-  segmentsToHTML,
-  type Range 
-} from './text-normalization.js';
 
 export interface QuoteSpan {
   text: string;
@@ -18,8 +11,8 @@ export interface QuoteSpan {
 }
 
 /**
- * Bulletproof quote highlighting using deterministic text search
- * This avoids trusting LLM character offsets which are often wrong
+ * Wrap quotes in text using pre-computed positions from span-based system
+ * Much simpler since we have exact character positions
  */
 export function wrapQuotesInText(
   text: string, 
@@ -29,41 +22,51 @@ export function wrapQuotesInText(
     return [{ text, start: 0, end: text.length, isQuote: false }];
   }
 
-  // Normalize the text for consistent processing
-  const normalizedText = normalizeForStorage(text);
+  // Sort keySentences by start position
+  const sortedQuotes = [...keySentences].sort((a, b) => a.start - b.start);
   
-  // Extract just the quote texts and find their positions deterministically
-  const quoteTexts = keySentences.map(s => s.text);
-  const ranges = findAllRangesByQuotes(normalizedText, quoteTexts);
-  
-  // Convert to segments
-  const segments = textToSegments(normalizedText, ranges);
-  
-  // Convert segments back to QuoteSpan format for backward compatibility
   const spans: QuoteSpan[] = [];
-  let currentPos = 0;
+  let lastEnd = 0;
   let quoteIndex = 0;
 
-  for (const segment of segments) {
-    const start = currentPos;
-    const end = currentPos + segment.text.length;
-    
-    spans.push({
-      text: segment.text,
-      start,
-      end,
-      isQuote: segment.isHighlight,
-      quoteIndex: segment.isHighlight ? quoteIndex++ : undefined
-    });
-    
-    currentPos = end;
+  for (const quote of sortedQuotes) {
+    // Add plain text before this quote
+    if (quote.start > lastEnd) {
+      const plainText = text.substring(lastEnd, quote.start);
+      if (plainText) {
+        spans.push({ text: plainText, start: lastEnd, end: quote.start, isQuote: false });
+      }
+    }
+
+    // Add the highlighted quote
+    const quoteText = text.substring(quote.start, quote.end);
+    if (quoteText) {
+      spans.push({ 
+        text: quoteText, 
+        start: quote.start, 
+        end: quote.end, 
+        isQuote: true, 
+        quoteIndex: quoteIndex++ 
+      });
+    }
+
+    lastEnd = Math.max(lastEnd, quote.end);
+  }
+
+  // Add any remaining plain text
+  if (lastEnd < text.length) {
+    const remainingText = text.substring(lastEnd);
+    if (remainingText) {
+      spans.push({ text: remainingText, start: lastEnd, end: text.length, isQuote: false });
+    }
   }
 
   return spans;
 }
 
 /**
- * Generate HTML for highlighted text with hover popovers using bulletproof approach
+ * Generate HTML for highlighted text using pre-computed positions
+ * Much simpler since we have exact character positions from span-based system
  */
 export function generateHighlightedHTML(
   text: string,
@@ -75,33 +78,50 @@ export function generateHighlightedHTML(
     return escapeHtml(text);
   }
 
-  // Use provided normalized text or normalize the input text
-  const textToUse = normalizedText || normalizeForStorage(text);
+  // Sort keySentences by start position
+  const sortedQuotes = [...keySentences].sort((a, b) => a.start - b.start);
   
-  // Extract just the quote texts and find their positions deterministically
-  const quoteTexts = keySentences.map(s => s.text);
-  const ranges = findAllRangesByQuotes(textToUse, quoteTexts);
-  
-  // Convert to segments
-  const segments = textToSegments(textToUse, ranges);
-  
-  // Generate HTML with popover data
-  return segments.map((segment, index) => {
-    if (!segment.isHighlight) {
-      return escapeHtml(segment.text);
+  // Create segments: plain text and highlighted quotes
+  const segments: { text: string; isQuote: boolean; quoteIndex?: number }[] = [];
+  let lastEnd = 0;
+  let quoteIndex = 0;
+
+  for (const quote of sortedQuotes) {
+    // Add plain text before this quote
+    if (quote.start > lastEnd) {
+      const plainText = text.substring(lastEnd, quote.start);
+      if (plainText) {
+        segments.push({ text: plainText, isQuote: false });
+      }
     }
-    
-    // Find the corresponding quote for popover content
-    const quoteIndex = quoteTexts.findIndex(q => q === segment.text);
-    const quote = keySentences[quoteIndex];
-    
-    if (!quote) {
-      console.warn('🔍 [Quote-Highlighting] Could not find quote for segment:', segment.text);
-      return escapeHtml(segment.text);
+
+    // Add the highlighted quote
+    const quoteText = text.substring(quote.start, quote.end);
+    if (quoteText) {
+      segments.push({ 
+        text: quoteText, 
+        isQuote: true, 
+        quoteIndex: quoteIndex++ 
+      });
     }
-    
-    // Simple quote number display
-    return `<span class="quote-highlight" data-quote-number="${quoteIndex + 1}">${escapeHtml(segment.text)}</span>`;
+
+    lastEnd = Math.max(lastEnd, quote.end);
+  }
+
+  // Add any remaining plain text
+  if (lastEnd < text.length) {
+    const remainingText = text.substring(lastEnd);
+    if (remainingText) {
+      segments.push({ text: remainingText, isQuote: false });
+    }
+  }
+
+  // Generate HTML
+  return segments.map(segment => {
+    if (segment.isQuote) {
+      return `<span class="quote-highlight" data-quote-number="${(segment.quoteIndex || 0) + 1}">${escapeHtml(segment.text)}</span>`;
+    }
+    return escapeHtml(segment.text);
   }).join('');
 }
 

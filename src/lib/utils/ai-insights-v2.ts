@@ -4,6 +4,7 @@ import { llmAsk, parseJSONLoose } from './llm.js';
 import type { EntryInsight, EvidenceExtraction, InsightComposition } from '../types/entry.js';
 import type { Entry as StoreEntry } from '../stores/entries.js';
 import { setAnalysisForEntry, hasAnalysis, isAnalysisStale } from '../stores/entries.js';
+import { segmentIntoSentences, segmentIntoTokens, resolveSpanSelections, generateSpanSelectionPrompt, type SpanSelection } from './text-segmentation.js';
 
 /**
  * Chunk text into manageable pieces for processing
@@ -32,92 +33,108 @@ function chunkText(text: string, maxChunkSize: number = 1000): string[] {
 }
 
 /**
- * Extract evidence from a single text chunk with focus on arc and contradiction
+ * Extract evidence using span-based selection (more reliable than text matching)
  */
-async function extractEvidenceFromChunk(chunk: string, chunkIndex: number = 0): Promise<EvidenceExtraction> {
-	console.log(`🔍 [AI-Insights-V2] Extracting evidence from chunk ${chunkIndex}`, {
-		chunkLength: chunk.length,
-		chunkPreview: chunk.substring(0, 100) + '...'
+async function extractEvidenceWithSpans(text: string, chunkIndex: number = 0): Promise<EvidenceExtraction> {
+	console.log(`🔍 [AI-Insights-V2] Extracting evidence with spans from chunk ${chunkIndex}`, {
+		textLength: text.length,
+		textPreview: text.substring(0, 100) + '...'
 	});
 
-	const prompt = `Return STRICT JSON only:
-{
- "key_sentences":[{"text": "exact quote from text", "start": 123, "end": 245, "category": "temptation|past_experience|conflict|decision|consequence"}],
- "emotions":[{"label":"joy|sadness|anger|fear|disgust|surprise","confidence":0..1}],
- "themes":[{"name":"...", "confidence":0..1}],
- "entities":[{"name":"...", "type":"person|org|place|task|self|other","salience":0..1,"sentiment":-1..1}],
- "uncertainties":["short bullets of things you aren't sure about"]
-}
+	// Pre-segment the text into sentences and tokens
+	const sentences = segmentIntoSentences(text);
+	const tokens = segmentIntoTokens(text);
+	
+	console.log(`📊 [AI-Insights-V2] Segmented into ${sentences.length} sentences, ${tokens.length} tokens`);
 
-Text: """${chunk}"""
-
-Rules: 
-- Extract 1-2 quotes that capture the emotional arc: temptation → past experience → conflict → decision → consequence
-- Look for CONTRADICTIONS: "I shouldn't" vs "but I want to", "it's wrong" vs "I'm going anyway"
-- Quote EXACTLY from the text - no changes, no paraphrasing
-- Categorize each quote: temptation, past_experience, conflict, decision, consequence
-- start/end are character positions (0-based) where the quote begins/ends in the text
-- Focus on sentences that show internal conflict, decision-making, or emotional consequences
-- Note: Character offsets are used for reference but will be validated and corrected if needed`;
+	const prompt = generateSpanSelectionPrompt(text, sentences, tokens);
 
 	try {
 		const response = await llmAsk({
 			prompt,
-			system: "You are a precise evidence extractor. Return only valid JSON. Quote exactly from the text.",
+			system: "You are a precise evidence extractor. Select key quotes using the provided sentence IDs and token indices. Return only valid JSON.",
 			temperature: 0.1,
 		});
 
 		const parsed = parseJSONLoose(response);
 		if (!parsed || typeof parsed !== 'object') {
+			console.error('❌ [AI-Insights-V2] Invalid JSON response from evidence extraction:', response);
 			throw new Error('Invalid JSON response from evidence extraction');
 		}
+		
+		console.log('🔍 [AI-Insights-V2] Parsed LLM response:', {
+			quotes: parsed.quotes?.length || 0,
+			emotions: parsed.emotions?.length || 0,
+			themes: parsed.themes?.length || 0,
+			entities: parsed.entities?.length || 0
+		});
+		
+		console.log('🔍 [AI-Insights-V2] Raw quotes from LLM:', parsed.quotes);
 
-		// Validate and normalize the response
-		// Note: We no longer trust character offsets from the LLM since we use deterministic text search
-		const validatedSentences = Array.isArray(parsed.key_sentences) 
-			? parsed.key_sentences
-				.filter((s: any) => s && typeof s.text === 'string' && typeof s.start === 'number' && typeof s.end === 'number')
-				.map((s: any) => ({
-					text: s.text,
-					start: s.start, // These will be ignored in favor of deterministic search
-					end: s.end,
-					category: s.category && ['temptation', 'past_experience', 'conflict', 'decision', 'consequence'].includes(s.category) 
-						? s.category as 'temptation' | 'past_experience' | 'conflict' | 'decision' | 'consequence'
-						: undefined
+		// Extract span selections
+		const spanSelections: SpanSelection[] = Array.isArray(parsed.quotes) 
+			? parsed.quotes.filter((q: any) => q && (q.sid !== undefined || q.sidRange !== undefined))
+			: [];
+		
+		console.log('🔍 [AI-Insights-V2] Span selections:', spanSelections);
+
+	// Resolve selections to actual text spans
+	const resolvedSpans = resolveSpanSelections(spanSelections, sentences, tokens, text);
+	
+	console.log(`✅ [AI-Insights-V2] Resolved ${resolvedSpans.length} quote spans`);
+	console.log('🔍 [AI-Insights-V2] Resolved spans:', resolvedSpans.map(s => ({ text: s.text.substring(0, 50) + '...', start: s.start, end: s.end })));
+
+		// Convert to key_sentences format
+		const keySentences = resolvedSpans.map((span, index) => ({
+			text: span.text,
+			start: span.start,
+			end: span.end,
+			category: determineQuoteCategory(span.text, span.reason) as 'temptation' | 'past_experience' | 'conflict' | 'decision' | 'consequence' | undefined
+		}));
+
+		// Extract other evidence (emotions, themes, entities, uncertainties)
+		const emotions = Array.isArray(parsed.emotions)
+			? parsed.emotions
+				.filter((e: any) => e && typeof e.label === 'string' && typeof e.confidence === 'number')
+				.map((e: any) => ({
+					label: e.label,
+					confidence: Math.max(0, Math.min(1, e.confidence))
 				}))
 			: [];
 
-		return {
-			key_sentences: validatedSentences,
-			emotions: Array.isArray(parsed.emotions)
-				? parsed.emotions
-					.filter((e: any) => e && typeof e.label === 'string' && typeof e.confidence === 'number')
-					.map((e: any) => ({
-						label: e.label,
-						confidence: Math.max(0, Math.min(1, e.confidence))
-					}))
-				: [],
-			themes: Array.isArray(parsed.themes)
-				? parsed.themes
-					.filter((t: any) => t && typeof t.name === 'string' && typeof t.confidence === 'number')
-					.map((t: any) => ({
-						name: t.name,
+		const themes = Array.isArray(parsed.themes)
+			? parsed.themes
+				.filter((t: any) => t && typeof t.name === 'string' && typeof t.confidence === 'number')
+				.flatMap((t: any) => {
+					const themeNames = t.name.split('|').map((name: string) => name.trim()).filter((name: string) => name.length > 0);
+					return themeNames.map((name: string) => ({
+						name: name,
 						confidence: Math.max(0, Math.min(1, t.confidence))
-					}))
-				: [],
-			entities: Array.isArray(parsed.entities)
-				? parsed.entities
-					.filter((e: any) => e && typeof e.name === 'string' && typeof e.type === 'string')
-					.map((e: any) => ({
-						name: e.name,
-						type: e.type,
-						salience: Math.max(0, Math.min(1, e.salience || 0.5)),
-						sentiment: Math.max(-1, Math.min(1, e.sentiment || 0))
-					}))
-				: [],
-			uncertainties: Array.isArray(parsed.uncertainties)
-				? parsed.uncertainties.filter((u: any) => typeof u === 'string')
-				: []
+					}));
+				})
+			: [];
+
+		const entities = Array.isArray(parsed.entities)
+			? parsed.entities
+				.filter((e: any) => e && typeof e.name === 'string' && typeof e.type === 'string')
+				.map((e: any) => ({
+					name: e.name,
+					type: e.type,
+					salience: Math.max(0, Math.min(1, e.salience || 0.5)),
+					sentiment: Math.max(-1, Math.min(1, e.sentiment || 0))
+				}))
+			: [];
+
+		const uncertainties = Array.isArray(parsed.uncertainties)
+			? parsed.uncertainties.filter((u: any) => typeof u === 'string')
+			: [];
+
+		return {
+			key_sentences: keySentences,
+			emotions,
+			themes,
+			entities,
+			uncertainties
 		};
 	} catch (error) {
 		console.error(`❌ [AI-Insights-V2] Evidence extraction failed for chunk ${chunkIndex}:`, error);
@@ -129,6 +146,46 @@ Rules:
 			uncertainties: [`Failed to extract evidence from chunk ${chunkIndex}`]
 		};
 	}
+}
+
+/**
+ * Determine quote category based on text content and reason
+ */
+function determineQuoteCategory(text: string, reason?: string): string | undefined {
+	const lowerText = text.toLowerCase();
+	const lowerReason = reason?.toLowerCase() || '';
+	
+	// Check for temptation indicators
+	if (lowerText.includes('want') || lowerText.includes('desire') || lowerText.includes('tempted') || 
+		lowerReason.includes('temptation')) {
+		return 'temptation';
+	}
+	
+	// Check for past experience indicators
+	if (lowerText.includes('remember') || lowerText.includes('before') || lowerText.includes('used to') ||
+		lowerReason.includes('past')) {
+		return 'past_experience';
+	}
+	
+	// Check for conflict indicators
+	if (lowerText.includes('but') || lowerText.includes('however') || lowerText.includes('conflict') ||
+		lowerText.includes('shouldn\'t') || lowerText.includes('can\'t') || lowerReason.includes('conflict')) {
+		return 'conflict';
+	}
+	
+	// Check for decision indicators
+	if (lowerText.includes('decide') || lowerText.includes('choose') || lowerText.includes('going to') ||
+		lowerReason.includes('decision')) {
+		return 'decision';
+	}
+	
+	// Check for consequence indicators
+	if (lowerText.includes('result') || lowerText.includes('happened') || lowerText.includes('because') ||
+		lowerReason.includes('consequence') || lowerReason.includes('outcome')) {
+		return 'consequence';
+	}
+	
+	return undefined;
 }
 
 /**
@@ -228,17 +285,20 @@ ${evidenceJson}
 
 Write STRICT JSON:
 {
- "summary": "<=3 sentences, warm & first-person, UK English, no diagnoses.",
+ "summary": "<=3 sentences, warm & first-person, UK English, no diagnoses (legacy field).",
+ "narrativeSummary": "Neutral recap of what actually happened - just the facts, no interpretation. 2-3 sentences describing the sequence of events.",
+ "observation": "Interpretation/lesson/insight - what this might mean for the person. 2-3 sentences highlighting patterns, contradictions, or deeper meaning.",
  "sentiment": {"score": -1..1},
  "rationales": ["brief reason referencing specific quote text"],
  "micro": {"nextAction":"<=10 words", "question":"<=12 words"}
 }
 
 CRITICAL RULES:
-- If the text shows CONFLICTING desires (want vs. should not), capture that contradiction explicitly in the summary
+- narrativeSummary: Just describe what happened chronologically, like "You chatted briefly with Dave from work, then reflected on your desire for adventure and change. You expressed uncertainty about your future and frustration about feeling stuck as time goes on."
+- observation: Focus on interpretation and meaning, like "You're caught between wanting transformation and fearing stagnation. The longing for change is strong, but you haven't yet defined what that change could look like."
 - Use ONLY the provided quotes - do not introduce facts not present in the evidence
-- If quotes show an emotional arc (temptation → conflict → decision), reflect that progression
-- Look for internal contradictions: "I shouldn't" vs "but I want to", "it's wrong" vs "I'm going anyway"
+- If quotes show an emotional arc (temptation → conflict → decision), reflect that progression in the narrativeSummary
+- Look for internal contradictions in the observation: "I shouldn't" vs "but I want to", "it's wrong" vs "I'm going anyway"
 - Write as a supportive coach speaking directly to me ('you/we'), concise, compassionate, UK English
 - Avoid clinical labels and diagnoses
 - If unsure, include a hedge ("I might be off because …")${agreementCheck}`;
@@ -252,11 +312,22 @@ CRITICAL RULES:
 
 		const parsed = parseJSONLoose(response);
 		if (!parsed || typeof parsed !== 'object') {
+			console.error('❌ [AI-Insights-V2] Invalid JSON response from composition:', response);
 			throw new Error('Invalid JSON response from composition');
 		}
+		
+		console.log('🔍 [AI-Insights-V2] Parsed composition response:', {
+			hasSummary: !!parsed.summary,
+			hasNarrativeSummary: !!parsed.narrativeSummary,
+			hasObservation: !!parsed.observation,
+			hasSentiment: !!parsed.sentiment,
+			rationalesCount: parsed.rationales?.length || 0
+		});
 
 		return {
 			summary: parsed.summary || "No summary available",
+			narrativeSummary: parsed.narrativeSummary || "No narrative summary available",
+			observation: parsed.observation || "No observation available",
 			sentiment: {
 				score: typeof parsed.sentiment?.score === 'number' 
 					? Math.max(-1, Math.min(1, parsed.sentiment.score))
@@ -274,6 +345,8 @@ CRITICAL RULES:
 		console.error('❌ [AI-Insights-V2] Composition failed:', error);
 		return {
 			summary: "I'm having trouble processing this entry right now.",
+			narrativeSummary: "Unable to generate narrative summary at this time.",
+			observation: "Unable to generate observation at this time.",
 			sentiment: { score: 0 },
 			rationales: ["Analysis temporarily unavailable"],
 			micro: {
@@ -305,6 +378,8 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 		return {
 			entryId: entry.id,
 			summary: existingAnalysis.summary,
+			narrativeSummary: (existingAnalysis as any).narrativeSummary || existingAnalysis.summary, // fallback to summary for backward compatibility
+			observation: (existingAnalysis as any).observation || "No observation available", // fallback for old entries
 			sentiment: existingAnalysis.sentiment,
 			themes: existingAnalysis.themes,
 			entities: existingAnalysis.entities,
@@ -322,8 +397,23 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 	if (!llmAsk) {
 		throw new Error('LLM not configured');
 	}
+	
+	// Check LLM configuration
+	const { isLLMConfigured } = await import('./llm.js');
+	if (!isLLMConfigured()) {
+		throw new Error('LLM endpoint not configured. Please check your LLM settings.');
+	}
 
 	console.log('🚀 [AI-Insights-V2] Starting evidence-first analysis');
+	
+	// Validate entry has content
+	if (!entry.text || entry.text.trim().length === 0) {
+		throw new Error('Entry has no content to analyze');
+	}
+	
+	if (entry.text.trim().length < 10) {
+		console.warn('⚠️ [AI-Insights-V2] Entry is very short, analysis may be limited');
+	}
 
 	try {
 		let evidence: EvidenceExtraction;
@@ -337,16 +427,16 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 			const chunks = chunkText(entry.text, 1000);
 			console.log(`📄 [AI-Insights-V2] Split into ${chunks.length} chunks`);
 			
-			// Process chunks in parallel
+			// Process chunks in parallel using span-based extraction
 			const chunkResults = await Promise.all(
-				chunks.map((chunk, index) => extractEvidenceFromChunk(chunk, index))
+				chunks.map((chunk, index) => extractEvidenceWithSpans(chunk, index))
 			);
 			
 			// Merge evidence
 			evidence = mergeEvidence(chunkResults, { maxQuotes: 8, maxEntities: 5, maxThemes: 5 });
 		} else {
-			console.log('📄 [AI-Insights-V2] Using single-chunk approach');
-			evidence = await extractEvidenceFromChunk(entry.text);
+			console.log('📄 [AI-Insights-V2] Using single-chunk approach with spans');
+			evidence = await extractEvidenceWithSpans(entry.text);
 		}
 
 		// Compose final insights
@@ -356,6 +446,8 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 		const insight: EntryInsight = {
 			entryId: entry.id,
 			summary: composition.summary,
+			narrativeSummary: composition.narrativeSummary,
+			observation: composition.observation,
 			sentiment: composition.sentiment,
 			themes: evidence.themes,
 			entities: evidence.entities,
@@ -378,6 +470,8 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 		const analysisData = {
 			entryId: entry.id,
 			summary: insight.summary,
+			narrativeSummary: insight.narrativeSummary,
+			observation: insight.observation,
 			sentiment: insight.sentiment,
 			themes: insight.themes,
 			entities: insight.entities,

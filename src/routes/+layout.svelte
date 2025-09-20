@@ -117,6 +117,9 @@
 				<a href="{base}/insights" class="nav-link" class:active={$page.route.id === '/insights'}
 					>Insights</a
 				>
+				<a href="{base}/feedback" class="nav-link" class:active={$page.route.id === '/feedback'}
+					>Feedback</a
+				>
 				<a href="{base}/settings" class="nav-link" class:active={$page.route.id === '/settings'}
 					>Settings</a
 				>
@@ -173,6 +176,12 @@
 				class="mobile-nav-link"
 				class:active={$page.route.id === '/insights'}
 				on:click={closeMobileMenu}>Insights</a
+			>
+			<a
+				href="{base}/feedback"
+				class="mobile-nav-link"
+				class:active={$page.route.id === '/feedback'}
+				on:click={closeMobileMenu}>Feedback</a
 			>
 			<a
 				href="{base}/settings"

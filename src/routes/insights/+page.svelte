@@ -97,7 +97,7 @@
 				<div><b>Entries: ${total}</b></div>
 				<div><b>Mood: ${(avgMood || 0).toFixed(2)} (${moodLabel})</b></div>
 			</div>
-			${topTags.length ? `<div class="theme-line">${topTags.map(([tag, count]) => `<span class="theme-pill">#${tag} (${count})</span>`).join('')}</div>` : ''}
+			${topTags.length ? `<div class="theme-line">${topTags.map(([tag, count]) => `<span class="theme-pill">#${tag} (${count})</span>`).join(' ')}</div>` : ''}
 			${worst && worst.text ? `<div class="notable neg">Most negative: "${worst.text.slice(0, 120)}${worst.text.length > 120 ? '...' : ''}" (${(worst.compound || 0).toFixed(2)})</div>` : ''}
 			${best && best.text ? `<div class="notable pos">Most positive: "${best.text.slice(0, 120)}${best.text.length > 120 ? '...' : ''}" (${(best.compound || 0).toFixed(2)})</div>` : ''}
 		`;

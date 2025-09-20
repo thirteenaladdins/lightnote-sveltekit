@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+	import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
 	import { updateEntry, hasAnalysis, isAnalysisStale, entries } from '$lib/stores/entries';
 	import { getSentiment } from '$lib/utils/sentiment';
 	import { generateEntryInsights, getMoodClass, getMoodArrow } from '$lib/utils/ai-insights';
@@ -9,6 +9,7 @@
 		initializeQuotePopovers,
 		cleanupQuotePopovers
 	} from '$lib/utils/quote-highlighting';
+	import { addOrUpdateFeedback, getFeedbackForEntry, feedbackStore } from '$lib/utils/feedback';
 	import type { Entry } from '$lib/stores/entries';
 	import type { EntryInsight } from '$lib/types/entry';
 
@@ -35,8 +36,20 @@
 	let highlightedText = '';
 	let entryTextContainer: HTMLDivElement;
 
+	// Theme management
+	let addingTheme = false;
+	let newTheme = '';
+	let editingTheme = '';
+	let editingThemeIndex = -1;
+	let editingThemeValue = '';
+
 	// Get the latest entry data from the store
 	$: currentEntry = entry ? $entries.find((e) => e.id === entry.id) || entry : null;
+
+	// Get feedback for current entry - reactive to both entry and feedback store changes
+	$: currentFeedback = currentEntry
+		? $feedbackStore.find((f) => f.entryId === currentEntry.id)
+		: null;
 
 	// Reactive updates when entry changes
 	$: if (currentEntry) {
@@ -65,6 +78,8 @@
 		insights = {
 			entryId: currentEntry.id,
 			summary: analysis.summary,
+			narrativeSummary: analysis.narrativeSummary || analysis.summary, // fallback for backward compatibility
+			observation: analysis.observation || 'No observation available', // fallback for old entries
 			sentiment: {
 				score: analysis.sentiment.score
 			},
@@ -93,12 +108,15 @@
 	// Generate highlighted text when entry or insights change
 	$: if (currentEntry) {
 		if (currentEntry.analysis?.keySentences && currentEntry.analysis.keySentences.length > 0) {
-			highlightedText = generateHighlightedHTML(
-				currentEntry.text,
-				currentEntry.analysis.keySentences,
-				insights || undefined,
-				currentEntry.textNorm
-			);
+			// Simple deduplication by position (no text normalization needed with span-based system)
+			const seen = new Set<string>();
+			const deduped = currentEntry.analysis.keySentences.filter((s) => {
+				const key = `${s.start}-${s.end}`;
+				if (seen.has(key)) return false;
+				seen.add(key);
+				return true;
+			});
+			highlightedText = generateHighlightedHTML(currentEntry.text, deduped, insights || undefined);
 		} else {
 			highlightedText = currentEntry.text;
 		}
@@ -166,6 +184,8 @@
 				insights = {
 					entryId: currentEntry.id,
 					summary: existingAnalysis.summary,
+					narrativeSummary: existingAnalysis.narrativeSummary || existingAnalysis.summary, // fallback for backward compatibility
+					observation: existingAnalysis.observation || 'No observation available', // fallback for old entries
 					sentiment: {
 						score: existingAnalysis.sentiment.score
 					},
@@ -349,6 +369,207 @@
 			node.style.height = newHeight + 'px';
 		}
 	}
+
+	// Theme management functions
+	function sanitizeTag(s: string) {
+		return s.trim().replace(/\s+/g, ' ').slice(0, 32);
+	}
+
+	async function startAddTheme() {
+		addingTheme = true;
+		await tick();
+		const el = document.getElementById('theme-add-input') as HTMLInputElement | null;
+		el?.focus();
+	}
+
+	function cancelAddTheme() {
+		addingTheme = false;
+		newTheme = '';
+	}
+
+	function commitAddTheme() {
+		const themeName = sanitizeTag(newTheme);
+		if (!themeName) return cancelAddTheme();
+
+		if (!currentEntry) return cancelAddTheme();
+
+		// Add the new theme to the current entry's analysis
+		const newThemeObj = { name: themeName, confidence: 1 };
+		const updatedThemes = [...(currentEntry.analysis?.themes || []), newThemeObj];
+
+		// Create updated analysis with new themes
+		const updatedAnalysis = {
+			...currentEntry.analysis,
+			entryId: currentEntry.id,
+			summary: currentEntry.analysis?.summary || '',
+			sentiment: currentEntry.analysis?.sentiment || { score: 0 },
+			entities: currentEntry.analysis?.entities || [],
+			themes: updatedThemes,
+			createdAt: currentEntry.analysis?.createdAt || Date.now(),
+			updatedAt: Date.now()
+		};
+
+		// Update the entry in the store
+		updateEntry(currentEntry.id, {
+			...currentEntry,
+			analysis: updatedAnalysis
+		});
+
+		// Update local insights for immediate UI feedback
+		if (insights) {
+			insights.themes = updatedThemes;
+		}
+
+		// Dispatch event for parent components
+		dispatch('addTheme', { name: themeName });
+
+		cancelAddTheme();
+	}
+
+	function handleAddKey(e: KeyboardEvent) {
+		if (e.key === 'Escape') return cancelAddTheme();
+		if (e.key === 'Enter') return commitAddTheme();
+	}
+
+	// Theme editing functions
+	async function startEditTheme(themeName: string, index: number) {
+		editingTheme = themeName;
+		editingThemeIndex = index;
+		editingThemeValue = themeName;
+		await tick();
+		const el = document.getElementById('theme-edit-input') as HTMLInputElement | null;
+		el?.focus();
+		el?.select();
+	}
+
+	function cancelEditTheme() {
+		editingTheme = '';
+		editingThemeIndex = -1;
+		editingThemeValue = '';
+	}
+
+	function commitEditTheme() {
+		const newName = sanitizeTag(editingThemeValue);
+		if (!newName || !currentEntry || editingThemeIndex === -1) return cancelEditTheme();
+
+		// Update the theme in the current entry's analysis
+		const updatedThemes = [...(currentEntry.analysis?.themes || [])];
+		updatedThemes[editingThemeIndex] = {
+			name: newName,
+			confidence: updatedThemes[editingThemeIndex].confidence || 1
+		};
+
+		// Create updated analysis with modified themes
+		const updatedAnalysis = {
+			...currentEntry.analysis,
+			entryId: currentEntry.id,
+			summary: currentEntry.analysis?.summary || '',
+			sentiment: currentEntry.analysis?.sentiment || { score: 0 },
+			entities: currentEntry.analysis?.entities || [],
+			themes: updatedThemes,
+			createdAt: currentEntry.analysis?.createdAt || Date.now(),
+			updatedAt: Date.now()
+		};
+
+		// Update the entry in the store
+		updateEntry(currentEntry.id, {
+			...currentEntry,
+			analysis: updatedAnalysis
+		});
+
+		// Update local insights for immediate UI feedback
+		if (insights) {
+			insights.themes = updatedThemes;
+		}
+
+		cancelEditTheme();
+	}
+
+	function deleteTheme(index: number) {
+		if (!currentEntry || index === -1) return;
+
+		// Remove the theme from the current entry's analysis
+		const updatedThemes = [...(currentEntry.analysis?.themes || [])];
+		updatedThemes.splice(index, 1);
+
+		// Create updated analysis with modified themes
+		const updatedAnalysis = {
+			...currentEntry.analysis,
+			entryId: currentEntry.id,
+			summary: currentEntry.analysis?.summary || '',
+			sentiment: currentEntry.analysis?.sentiment || { score: 0 },
+			entities: currentEntry.analysis?.entities || [],
+			themes: updatedThemes,
+			createdAt: currentEntry.analysis?.createdAt || Date.now(),
+			updatedAt: Date.now()
+		};
+
+		// Update the entry in the store
+		updateEntry(currentEntry.id, {
+			...currentEntry,
+			analysis: updatedAnalysis
+		});
+
+		// Update local insights for immediate UI feedback
+		if (insights) {
+			insights.themes = updatedThemes;
+		}
+	}
+
+	function handleEditKey(e: KeyboardEvent) {
+		if (e.key === 'Escape') return cancelEditTheme();
+		if (e.key === 'Enter') return commitEditTheme();
+	}
+
+	// Feedback functions
+	function handleSummaryFeedback(
+		summaryType: 'narrativeSummary' | 'observation' | 'summary',
+		feedback: 'wrong' | 'flat' | 'good'
+	) {
+		console.log('🎯 [EntryModal] handleSummaryFeedback called', {
+			summaryType,
+			feedback,
+			entryId: currentEntry?.id,
+			hasInsights: !!insights
+		});
+
+		if (!currentEntry || !insights) {
+			console.warn('❌ [EntryModal] Missing currentEntry or insights');
+			return;
+		}
+
+		const summaryText =
+			summaryType === 'narrativeSummary'
+				? insights.narrativeSummary
+				: summaryType === 'observation'
+					? insights.observation
+					: insights.summary;
+
+		console.log('📝 [EntryModal] Calling addOrUpdateFeedback', {
+			entryId: currentEntry.id,
+			summaryType,
+			feedback,
+			summaryTextLength: summaryText.length
+		});
+
+		addOrUpdateFeedback(currentEntry.id, summaryType, feedback, summaryText, currentEntry.text);
+
+		// Show brief confirmation
+		saveStatus = `Marked ${summaryType} as ${feedback}`;
+		setTimeout(() => {
+			saveStatus = '';
+		}, 2000);
+	}
+
+	function getFeedbackForSummaryType(summaryType: 'narrativeSummary' | 'observation' | 'summary') {
+		const result = currentFeedback?.feedback[summaryType];
+		console.log('🔍 [EntryModal] getFeedbackForSummaryType', {
+			summaryType,
+			currentFeedback: currentFeedback?.feedback,
+			result
+		});
+		return result;
+	}
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -526,9 +747,69 @@
 												</button>
 											</div>
 										{:else if insights}
-											<div class="insight-summary">
+											<div class="insight-narrative">
 												<h4>Summary</h4>
-												<p>{insights.summary}</p>
+												<p>{insights.narrativeSummary}</p>
+												<div class="feedback-buttons">
+													<button
+														class="feedback-btn wrong"
+														class:selected={getFeedbackForSummaryType('narrativeSummary') ===
+															'wrong'}
+														on:click={() => handleSummaryFeedback('narrativeSummary', 'wrong')}
+														title="Mark as wrong"
+													>
+														❌ Wrong
+													</button>
+													<button
+														class="feedback-btn flat"
+														class:selected={getFeedbackForSummaryType('narrativeSummary') ===
+															'flat'}
+														on:click={() => handleSummaryFeedback('narrativeSummary', 'flat')}
+														title="Mark as flat"
+													>
+														😐 Flat
+													</button>
+													<button
+														class="feedback-btn good"
+														class:selected={getFeedbackForSummaryType('narrativeSummary') ===
+															'good'}
+														on:click={() => handleSummaryFeedback('narrativeSummary', 'good')}
+														title="Mark as good"
+													>
+														✅ Good
+													</button>
+												</div>
+											</div>
+
+											<div class="insight-observation">
+												<h4>Observation</h4>
+												<p>{insights.observation}</p>
+												<div class="feedback-buttons">
+													<button
+														class="feedback-btn wrong"
+														class:selected={getFeedbackForSummaryType('observation') === 'wrong'}
+														on:click={() => handleSummaryFeedback('observation', 'wrong')}
+														title="Mark as wrong"
+													>
+														❌ Wrong
+													</button>
+													<button
+														class="feedback-btn flat"
+														class:selected={getFeedbackForSummaryType('observation') === 'flat'}
+														on:click={() => handleSummaryFeedback('observation', 'flat')}
+														title="Mark as flat"
+													>
+														😐 Flat
+													</button>
+													<button
+														class="feedback-btn good"
+														class:selected={getFeedbackForSummaryType('observation') === 'good'}
+														on:click={() => handleSummaryFeedback('observation', 'good')}
+														title="Mark as good"
+													>
+														✅ Good
+													</button>
+												</div>
 											</div>
 
 											<div class="insight-sentiment">
@@ -548,11 +829,67 @@
 												<div class="insight-themes">
 													<h4>Themes</h4>
 													<div class="themes-list">
-														{#each insights.themes as theme}
-															<span class="theme-pill" style="opacity: {theme.confidence || 0.7}">
-																{theme.name}
-															</span>
+														{#each insights.themes as theme, index}
+															{#if editingTheme === theme.name}
+																<input
+																	id="theme-edit-input"
+																	class="theme-input"
+																	bind:value={editingThemeValue}
+																	placeholder="Edit theme…"
+																	aria-label="Edit theme"
+																	maxlength="32"
+																	on:keydown={handleEditKey}
+																	on:blur={commitEditTheme}
+																/>
+															{:else}
+																<div class="theme-pill-container">
+																	<span
+																		class="theme-pill"
+																		style="opacity: {theme.confidence || 0.7}"
+																		on:click={() => startEditTheme(theme.name, index)}
+																		on:keydown={(e) =>
+																			e.key === 'Enter' && startEditTheme(theme.name, index)}
+																		role="button"
+																		tabindex="0"
+																		title="Click to edit"
+																	>
+																		{theme.name}
+																	</span>
+																	<button
+																		class="theme-delete-btn"
+																		on:click={() => deleteTheme(index)}
+																		aria-label="Delete theme"
+																		title="Delete theme"
+																		type="button"
+																	>
+																		×
+																	</button>
+																</div>
+															{/if}
 														{/each}
+
+														{#if addingTheme}
+															<input
+																id="theme-add-input"
+																class="theme-input"
+																bind:value={newTheme}
+																placeholder="Add theme…"
+																aria-label="Add theme"
+																maxlength="32"
+																on:keydown={handleAddKey}
+																on:blur={commitAddTheme}
+															/>
+														{:else}
+															<button
+																class="theme-pill add-pill"
+																on:click={startAddTheme}
+																aria-label="Add theme"
+																title="Add theme"
+																type="button"
+															>
+																+
+															</button>
+														{/if}
 													</div>
 												</div>
 											{/if}
@@ -577,7 +914,15 @@
 												<div class="insight-quotes">
 													<h4>Key Quotes</h4>
 													<div class="quotes-list">
-														{#each currentEntry.analysis.keySentences as quote, index}
+														{#each (() => {
+															const seen = new Set();
+															return (currentEntry.analysis?.keySentences || []).filter((q) => {
+																const k = `${q.start}-${q.end}`;
+																if (seen.has(k)) return false;
+																seen.add(k);
+																return true;
+															});
+														})() as quote, index}
 															<div class="quote-item">
 																<div class="quote-number">Quote {index + 1}</div>
 																<div class="quote-text">"{quote.text}"</div>
@@ -949,7 +1294,8 @@
 		gap: 16px;
 	}
 
-	.insight-summary h4,
+	.insight-narrative h4,
+	.insight-observation h4,
 	.insight-sentiment h4,
 	.insight-themes h4,
 	.insight-entities h4,
@@ -962,11 +1308,26 @@
 		letter-spacing: 0.5px;
 	}
 
-	.insight-summary p {
+	.insight-narrative p,
+	.insight-observation p {
 		margin: 0;
 		font-size: 14px;
 		line-height: 1.5;
 		color: var(--text);
+	}
+
+	.insight-narrative {
+		background: rgba(138, 180, 248, 0.05);
+		border: 1px solid rgba(138, 180, 248, 0.15);
+		border-radius: 8px;
+		padding: 12px;
+	}
+
+	.insight-observation {
+		background: rgba(255, 193, 7, 0.05);
+		border: 1px solid rgba(255, 193, 7, 0.15);
+		border-radius: 8px;
+		padding: 12px;
 	}
 
 	.sentiment-score {
@@ -1043,14 +1404,108 @@
 		gap: 6px;
 	}
 
-	.theme-pill {
+	.theme-pill-container {
+		display: inline-flex;
+		align-items: center;
 		background: rgba(138, 180, 248, 0.1);
 		border: 1px solid rgba(138, 180, 248, 0.3);
+		border-radius: 12px;
+		position: relative;
+		transition: all 0.2s ease;
+		overflow: hidden;
+	}
+
+	.theme-pill-container:hover {
+		background: rgba(138, 180, 248, 0.15);
+		border-color: rgba(138, 180, 248, 0.4);
+	}
+
+	.theme-pill-container:hover .theme-pill {
+		opacity: 0.7;
+	}
+
+	.theme-pill-container:hover .theme-delete-btn {
+		opacity: 1;
+		visibility: visible;
+	}
+
+	.theme-pill {
 		color: var(--accent);
+		padding: 4px 8px;
+		font-size: 12px;
+		font-weight: 500;
+		display: inline-block;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		position: relative;
+		z-index: 1;
+	}
+
+	.theme-pill:hover {
+		background: rgba(255, 255, 255, 0.1);
+	}
+
+	.theme-delete-btn {
+		position: absolute;
+		top: 50%;
+		right: 4px;
+		transform: translateY(-50%);
+		background: rgba(0, 0, 0, 0.7);
+		border: none;
+		color: white;
+		cursor: pointer;
+		padding: 2px 6px;
+		border-radius: 4px;
+		font-size: 12px;
+		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		opacity: 0;
+		visibility: hidden;
+		min-width: 18px;
+		height: 18px;
+		z-index: 2;
+		backdrop-filter: blur(2px);
+	}
+
+	.theme-delete-btn:hover {
+		background: rgba(0, 0, 0, 0.9);
+		transform: translateY(-50%) scale(1.1);
+	}
+
+	/* Add/inline-input styles to match your pills */
+	.add-pill {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 4px 8px;
+		cursor: pointer;
+		opacity: 0.9;
+		transition:
+			background 0.15s ease,
+			border-color 0.15s ease,
+			opacity 0.15s ease;
+	}
+	.add-pill:hover {
+		opacity: 1;
+	}
+
+	.theme-input {
+		background: rgba(138, 180, 248, 0.06);
+		border: 1px solid rgba(138, 180, 248, 0.35);
+		color: var(--text);
 		padding: 4px 8px;
 		border-radius: 12px;
 		font-size: 12px;
 		font-weight: 500;
+		width: 200px;
+		outline: none;
+	}
+	.theme-input:focus {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.25);
 	}
 
 	.entities-list {
@@ -1160,6 +1615,11 @@
 		background: rgba(138, 180, 248, 0.8);
 	}
 
+	/* Override global button min-height for modal buttons */
+	.modal-content button {
+		min-height: unset;
+	}
+
 	/* Mobile responsiveness */
 	@media (max-width: 768px) {
 		.modal-overlay {
@@ -1215,6 +1675,97 @@
 
 		.theme-pill {
 			font-size: 11px;
+			padding: 3px 6px;
+		}
+	}
+
+	/* Feedback buttons */
+	.feedback-buttons {
+		display: flex;
+		gap: 6px;
+		margin-top: 8px;
+		opacity: 0.7;
+		transition: opacity 0.2s ease;
+	}
+
+	.insight-narrative:hover .feedback-buttons,
+	.insight-observation:hover .feedback-buttons {
+		opacity: 1;
+	}
+
+	.feedback-btn {
+		background: transparent;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		padding: 4px 8px;
+		font-size: 11px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		min-height: unset;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.feedback-btn.wrong {
+		color: var(--red);
+		border-color: var(--red);
+	}
+
+	.feedback-btn.wrong:hover {
+		background: var(--red);
+		color: white;
+	}
+
+	.feedback-btn.flat {
+		color: var(--orange);
+		border-color: var(--orange);
+	}
+
+	.feedback-btn.flat:hover {
+		background: var(--orange);
+		color: white;
+	}
+
+	.feedback-btn.good {
+		color: var(--green);
+		border-color: var(--green);
+	}
+
+	.feedback-btn.good:hover {
+		background: var(--green);
+		color: white;
+	}
+
+	.feedback-btn.selected {
+		opacity: 1;
+		transform: scale(1.05);
+		box-shadow: 0 0 0 2px currentColor;
+	}
+
+	.feedback-btn.wrong.selected {
+		background: var(--red);
+		color: white;
+	}
+
+	.feedback-btn.flat.selected {
+		background: var(--orange);
+		color: white;
+	}
+
+	.feedback-btn.good.selected {
+		background: var(--green);
+		color: white;
+	}
+
+	@media (max-width: 768px) {
+		.feedback-buttons {
+			flex-wrap: wrap;
+		}
+
+		.feedback-btn {
+			font-size: 10px;
 			padding: 3px 6px;
 		}
 	}

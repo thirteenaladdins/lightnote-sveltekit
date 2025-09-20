@@ -24,23 +24,41 @@ export function updateEntry(entry: Entry, updates: Partial<Pick<Entry, 'text' | 
 export function createEntryInsight(
 	entryId: string,
 	summary: string,
+	narrativeSummary: string,
+	observation: string,
 	sentiment: { score: number },
 	themes: { name: string; confidence?: number }[] = [],
 	entities: {
 		name: string;
-		type?: "person"|"org"|"place"|"task"|"self"|"other";
+		type?: string;
 		salience?: number;
 		sentiment?: number;
 	}[] = [],
+	keySentences: {
+		text: string;
+		start: number;
+		end: number;
+		category?: 'temptation' | 'past_experience' | 'conflict' | 'decision' | 'consequence';
+	}[] = [],
+	micro?: { 
+		nextAction?: string; 
+		question?: string 
+	},
+	uncertainties?: string[],
 	model?: string,
 	tokens?: number
 ): EntryInsight {
 	return {
 		entryId,
 		summary,
+		narrativeSummary,
+		observation,
 		sentiment,
 		themes,
 		entities,
+		keySentences,
+		micro,
+		uncertainties,
 		model,
 		tokens,
 		createdAt: Date.now()
@@ -50,7 +68,7 @@ export function createEntryInsight(
 // Helper function to update an insight
 export function updateEntryInsight(
 	insight: EntryInsight,
-	updates: Partial<Pick<EntryInsight, 'summary' | 'sentiment' | 'themes' | 'entities' | 'model' | 'tokens'>>
+	updates: Partial<Pick<EntryInsight, 'summary' | 'narrativeSummary' | 'observation' | 'sentiment' | 'themes' | 'entities' | 'model' | 'tokens'>>
 ): EntryInsight {
 	return {
 		...insight,

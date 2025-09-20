@@ -11,6 +11,7 @@
 	import { getSentiment } from '$lib/utils/sentiment';
 	import { prompts } from '$lib/utils/prompts';
 	import EntryModal from '$lib/components/EntryModal.svelte';
+	import { getFeedbackForEntry } from '$lib/utils/feedback';
 	import type { Entry } from '$lib/stores/entries';
 	import '$lib/utils/quick-debug.js';
 
@@ -186,6 +187,286 @@
 				);
 			} catch (error) {
 				console.error('❌ [TEST-IMPROVED] Error:', error);
+			}
+		};
+
+		// Test function for span-based text segmentation
+		(window as any).testSpanSegmentation = async (entryId: string) => {
+			console.log('🧪 [TEST-SPANS] Testing span-based segmentation for entry:', entryId);
+			const entry = $entries.find((e) => e.id === entryId);
+			if (!entry) {
+				console.log('❌ [TEST-SPANS] Entry not found');
+				return;
+			}
+
+			try {
+				const { segmentIntoSentences, segmentIntoTokens, generateSpanSelectionPrompt } =
+					await import('$lib/utils/text-segmentation.js');
+
+				console.log('📊 [TEST-SPANS] Segmenting text...');
+				const sentences = segmentIntoSentences(entry.text);
+				const tokens = segmentIntoTokens(entry.text);
+
+				console.log(`📊 [TEST-SPANS] Found ${sentences.length} sentences, ${tokens.length} tokens`);
+
+				// Show first few sentences
+				console.log('📝 [TEST-SPANS] First 5 sentences:');
+				sentences.slice(0, 5).forEach((s, i) => {
+					console.log(`  ${s.sid}: "${s.text}" (${s.charStart}-${s.charEnd})`);
+				});
+
+				// Show first few tokens
+				console.log('🔤 [TEST-SPANS] First 10 tokens:');
+				tokens.slice(0, 10).forEach((t, i) => {
+					console.log(`  ${t.tid}: "${t.text}" (${t.charStart}-${t.charEnd})`);
+				});
+
+				// Generate sample prompt
+				const prompt = generateSpanSelectionPrompt(entry.text, sentences, tokens);
+				console.log('📋 [TEST-SPANS] Sample prompt (first 500 chars):');
+				console.log(prompt.substring(0, 500) + '...');
+			} catch (error) {
+				console.error('❌ [TEST-SPANS] Error:', error);
+			}
+		};
+
+		// Test function to verify span-based quote highlighting
+		(window as any).testSpanHighlighting = async (entryId: string) => {
+			console.log(
+				'🧪 [TEST-SPAN-HIGHLIGHTING] Testing span-based quote highlighting for entry:',
+				entryId
+			);
+			const entry = $entries.find((e) => e.id === entryId);
+			if (!entry) {
+				console.log('❌ [TEST-SPAN-HIGHLIGHTING] Entry not found');
+				return;
+			}
+
+			try {
+				// Generate insights with span-based approach
+				const { generateEntryInsightsV2 } = await import('$lib/utils/ai-insights-v2.js');
+				console.log('🚀 [TEST-SPAN-HIGHLIGHTING] Generating insights with span-based approach...');
+				const result = await generateEntryInsightsV2(entry, true);
+
+				console.log('✅ [TEST-SPAN-HIGHLIGHTING] Insights generated:', {
+					keySentences: result.keySentences.length,
+					summary: result.summary.substring(0, 100) + '...'
+				});
+
+				// Test quote highlighting
+				const { generateHighlightedHTML } = await import('$lib/utils/quote-highlighting.js');
+				const highlighted = generateHighlightedHTML(entry.text, result.keySentences);
+
+				console.log('🎨 [TEST-SPAN-HIGHLIGHTING] Highlighted HTML generated');
+				console.log('📊 [TEST-SPAN-HIGHLIGHTING] Quote positions:');
+				result.keySentences.forEach((quote, i) => {
+					const actualText = entry.text.substring(quote.start, quote.end);
+					const matches = actualText === quote.text;
+					console.log(
+						`  Quote ${i + 1}: ${matches ? '✅' : '❌'} "${quote.text.substring(0, 50)}..." (${quote.start}-${quote.end})`
+					);
+					if (!matches) {
+						console.log(`    Expected: "${quote.text}"`);
+						console.log(`    Actual:   "${actualText}"`);
+					}
+				});
+			} catch (error) {
+				console.error('❌ [TEST-SPAN-HIGHLIGHTING] Error:', error);
+			}
+		};
+
+		// Test function to debug AI insights issues
+		(window as any).debugAIInsights = async (entryId?: string) => {
+			console.log('🔍 [DEBUG-AI-INSIGHTS] Starting debug session');
+
+			// Find entry to test
+			let entry;
+			if (entryId) {
+				entry = $entries.find((e) => e.id === entryId);
+			} else {
+				entry = $entries[$entries.length - 1]; // Use most recent entry
+			}
+
+			if (!entry) {
+				console.log('❌ [DEBUG-AI-INSIGHTS] No entry found');
+				return;
+			}
+
+			console.log('🔍 [DEBUG-AI-INSIGHTS] Testing entry:', {
+				id: entry.id,
+				text: entry.text.substring(0, 100) + '...',
+				hasAnalysis: !!entry.analysis
+			});
+
+			try {
+				// Test LLM configuration
+				const { isLLMConfigured, getLLMConfig } = await import('$lib/utils/llm.js');
+				console.log('🔍 [DEBUG-AI-INSIGHTS] LLM Config:', {
+					isConfigured: isLLMConfigured(),
+					config: isLLMConfigured() ? getLLMConfig() : null
+				});
+
+				// Test evidence extraction
+				const { generateEntryInsightsV2 } = await import('$lib/utils/ai-insights-v2.js');
+				console.log('🚀 [DEBUG-AI-INSIGHTS] Generating insights...');
+
+				const result = await generateEntryInsightsV2(entry, true);
+
+				console.log('✅ [DEBUG-AI-INSIGHTS] Results:', {
+					summary: result.summary,
+					narrativeSummary: result.narrativeSummary,
+					observation: result.observation,
+					sentiment: result.sentiment,
+					keySentences: result.keySentences.length,
+					themes: result.themes.length,
+					entities: result.entities.length
+				});
+
+				// Test quote highlighting
+				const { generateHighlightedHTML } = await import('$lib/utils/quote-highlighting.js');
+				const highlighted = generateHighlightedHTML(entry.text, result.keySentences);
+				console.log('🎨 [DEBUG-AI-INSIGHTS] Highlighting test:', {
+					originalLength: entry.text.length,
+					highlightedLength: highlighted.length,
+					hasHighlights: highlighted.includes('quote-highlight')
+				});
+			} catch (error) {
+				console.error('❌ [DEBUG-AI-INSIGHTS] Error:', error);
+			}
+		};
+
+		// Simple test to debug character positions
+		(window as any).debugCharPositions = () => {
+			const text = "Know yourself. That's the most important thing. Know yourself.";
+			console.log('🔍 [DEBUG-CHAR-POSITIONS] Test text:', JSON.stringify(text));
+			console.log('🔍 [DEBUG-CHAR-POSITIONS] Text length:', text.length);
+
+			// Find "Know yourself" positions manually
+			const knowYourselfPos1 = text.indexOf('Know yourself');
+			const knowYourselfPos2 = text.indexOf('Know yourself', knowYourselfPos1 + 1);
+
+			console.log('🔍 [DEBUG-CHAR-POSITIONS] "Know yourself" positions:', {
+				first: knowYourselfPos1,
+				second: knowYourselfPos2,
+				firstSlice: JSON.stringify(text.slice(knowYourselfPos1, knowYourselfPos1 + 13)),
+				secondSlice: JSON.stringify(text.slice(knowYourselfPos2, knowYourselfPos2 + 13))
+			});
+		};
+
+		// Test function to debug text segmentation
+		(window as any).testTextSegmentation = async (entryId?: string) => {
+			console.log('🔍 [TEST-TEXT-SEGMENTATION] Starting test');
+
+			// Find entry to test
+			let entry;
+			if (entryId) {
+				entry = $entries.find((e) => e.id === entryId);
+			} else {
+				entry = $entries[$entries.length - 1]; // Use most recent entry
+			}
+
+			if (!entry) {
+				console.log('❌ [TEST-TEXT-SEGMENTATION] No entry found');
+				return;
+			}
+
+			console.log('🔍 [TEST-TEXT-SEGMENTATION] Original text:');
+			console.log(JSON.stringify(entry.text));
+
+			try {
+				const { segmentIntoSentences } = await import('$lib/utils/text-segmentation.js');
+				const sentences = segmentIntoSentences(entry.text);
+
+				console.log('🔍 [TEST-TEXT-SEGMENTATION] Segmented sentences:');
+				sentences.forEach((sentence, i) => {
+					console.log(`Sentence ${sentence.sid}:`, {
+						text: JSON.stringify(sentence.text),
+						charStart: sentence.charStart,
+						charEnd: sentence.charEnd,
+						originalSlice: JSON.stringify(entry.text.slice(sentence.charStart, sentence.charEnd))
+					});
+				});
+
+				// Find the problematic sentence
+				const knowYourselfSentences = sentences.filter(
+					(s) =>
+						s.text.toLowerCase().includes('know yourse') ||
+						s.text.toLowerCase().includes('know yourself')
+				);
+
+				console.log(
+					'🔍 [TEST-TEXT-SEGMENTATION] Sentences with "know yourself":',
+					knowYourselfSentences
+				);
+			} catch (error) {
+				console.error('❌ [TEST-TEXT-SEGMENTATION] Error:', error);
+			}
+		};
+
+		// Test function to debug quote truncation issues
+		(window as any).debugQuoteTruncation = async (entryId?: string) => {
+			console.log('🔍 [DEBUG-QUOTE-TRUNCATION] Starting debug session');
+
+			// Find entry to test
+			let entry;
+			if (entryId) {
+				entry = $entries.find((e) => e.id === entryId);
+			} else {
+				entry = $entries[$entries.length - 1]; // Use most recent entry
+			}
+
+			if (!entry) {
+				console.log('❌ [DEBUG-QUOTE-TRUNCATION] No entry found');
+				return;
+			}
+
+			console.log('🔍 [DEBUG-QUOTE-TRUNCATION] Testing entry:', {
+				id: entry.id,
+				text: entry.text.substring(0, 200) + '...'
+			});
+
+			try {
+				// Test text segmentation
+				const { segmentIntoSentences, segmentIntoTokens } = await import(
+					'$lib/utils/text-segmentation.js'
+				);
+				const sentences = segmentIntoSentences(entry.text);
+				const tokens = segmentIntoTokens(entry.text);
+
+				console.log('🔍 [DEBUG-QUOTE-TRUNCATION] Text segmentation:', {
+					sentences: sentences.length,
+					tokens: tokens.length,
+					firstSentence: sentences[0]?.text,
+					lastSentence: sentences[sentences.length - 1]?.text
+				});
+
+				// Look for sentences containing "Know yourself"
+				const knowYourselfSentences = sentences.filter(
+					(s) =>
+						s.text.toLowerCase().includes('know yourself') ||
+						s.text.toLowerCase().includes('know yourse')
+				);
+
+				console.log(
+					'🔍 [DEBUG-QUOTE-TRUNCATION] Sentences with "know yourself":',
+					knowYourselfSentences.map((s) => ({
+						sid: s.sid,
+						text: s.text,
+						charStart: s.charStart,
+						charEnd: s.charEnd
+					}))
+				);
+
+				// Test span resolution with a mock selection
+				if (knowYourselfSentences.length > 0) {
+					const { resolveSpanSelections } = await import('$lib/utils/text-segmentation.js');
+					const mockSelection = { sid: knowYourselfSentences[0].sid };
+					const resolved = resolveSpanSelections([mockSelection], sentences, tokens, entry.text);
+
+					console.log('🔍 [DEBUG-QUOTE-TRUNCATION] Mock resolution result:', resolved);
+				}
+			} catch (error) {
+				console.error('❌ [DEBUG-QUOTE-TRUNCATION] Error:', error);
 			}
 		};
 
@@ -629,6 +910,20 @@
 						on:click|stopPropagation={() => entry.id && deleteEntryById(entry.id)}>Delete</button
 					>
 					<div class="spacer"></div>
+					{#if entry.id}
+						{@const feedback = getFeedbackForEntry(entry.id)}
+						{#if feedback.length > 0}
+							{@const feedbackEntry = feedback[0]}
+							{@const feedbackCount = Object.values(feedbackEntry.feedback).filter(
+								(f) => f !== undefined
+							).length}
+							{#if feedbackCount > 0}
+								<small class="feedback-indicator" title="{feedbackCount} feedback entries">
+									📝 {feedbackCount}
+								</small>
+							{/if}
+						{/if}
+					{/if}
 					<small class="subtle mono">id: {entry.id?.slice(0, 8) || 'unknown'}</small>
 				</div>
 			</div>

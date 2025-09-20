@@ -452,16 +452,19 @@ details.llm-settings summary {
 
 .theme-line {
   margin: 0.5rem 0 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .theme-pill {
   display: inline-block;
   padding: 0.2rem 0.55rem;
-  margin: 0.2rem 0.35rem 0.2rem 0;
   border-radius: 999px;
   background: #1f2430;
   border: 1px solid #2b3242;
   font-size: 0.9rem;
+  margin: 0;
 }
 
 .notable {
@@ -915,4 +918,18 @@ textarea#entry {
     font-size: 11px;
     padding: 3px 6px;
   }
+}
+
+/* Feedback indicator styles */
+.feedback-indicator {
+  background: var(--accent);
+  color: var(--bg);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }

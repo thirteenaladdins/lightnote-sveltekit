@@ -27,6 +27,8 @@ export function getCompleteEntry(entryId: string): CompleteEntry | null {
     // AI analysis (if available)
     analysis: entry.analysis ? {
       summary: entry.analysis.summary,
+      narrativeSummary: entry.analysis.narrativeSummary,
+      observation: entry.analysis.observation,
       sentiment: entry.analysis.sentiment,
       themes: entry.analysis.themes,
       entities: entry.analysis.entities,
@@ -77,6 +79,8 @@ export type CompleteEntry = {
   // AI analysis (if available)
   analysis: {
     summary: string;
+    narrativeSummary?: string;
+    observation?: string;
     sentiment: { score: number };
     themes: { name: string; confidence?: number }[];
     entities: {

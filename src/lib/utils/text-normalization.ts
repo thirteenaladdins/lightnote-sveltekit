@@ -39,6 +39,7 @@ export function clampRanges(text: string, ranges: Range[]): Range[] {
 export function findAllRangesByQuotes(text: string, quotes: string[]): Range[] {
   let cursor = 0;
   const out: Range[] = [];
+  const seen = new Set<string>();
   
   for (const quote of quotes) {
     // Try multiple normalization approaches
@@ -59,14 +60,21 @@ export function findAllRangesByQuotes(text: string, quotes: string[]): Range[] {
       }
       
       if (idx !== -1) {
-        console.log(`✅ [Text-Normalization] Found quote using ${approach.name} approach at index ${idx}`);
-        out.push({ 
-          start: idx, 
-          end: idx + approach.quoteNorm.length, 
-          id: crypto.randomUUID(),
-          kind: 'quote'
-        });
-        cursor = idx + approach.quoteNorm.length; // move cursor past this match
+        const start = idx;
+        const end = idx + approach.quoteNorm.length;
+        const key = `${start}:${end}`;
+        if (!seen.has(key)) {
+          console.log(`✅ [Text-Normalization] Found quote using ${approach.name} approach at index ${idx}`);
+          out.push({ 
+            start, 
+            end, 
+            id: crypto.randomUUID(),
+            kind: 'quote'
+          });
+          seen.add(key);
+        }
+        // Move cursor forward but never backwards
+        cursor = Math.max(cursor, end);
         found = true;
         break;
       }
@@ -84,14 +92,18 @@ export function findAllRangesByQuotes(text: string, quotes: string[]): Range[] {
       // Try fuzzy matching as last resort
       const fuzzyMatch = findFuzzyMatch(text, quote);
       if (fuzzyMatch) {
-        console.warn('🔍 [Text-Normalization] Found fuzzy match:', fuzzyMatch);
-        out.push({
-          start: fuzzyMatch.start,
-          end: fuzzyMatch.end,
-          id: crypto.randomUUID(),
-          kind: 'quote-fuzzy'
-        });
-        cursor = fuzzyMatch.end;
+        const key = `${fuzzyMatch.start}:${fuzzyMatch.end}`;
+        if (!seen.has(key)) {
+          console.warn('🔍 [Text-Normalization] Found fuzzy match:', fuzzyMatch);
+          out.push({
+            start: fuzzyMatch.start,
+            end: fuzzyMatch.end,
+            id: crypto.randomUUID(),
+            kind: 'quote-fuzzy'
+          });
+          seen.add(key);
+        }
+        cursor = Math.max(cursor, fuzzyMatch.end);
       }
     }
   }

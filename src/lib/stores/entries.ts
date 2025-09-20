@@ -22,7 +22,9 @@ export interface Entry {
 	};
 	analysis?: {
 		entryId: string;
-		summary: string;                               // warm, ≤3 sentences
+		summary: string;                               // warm, ≤3 sentences (legacy - kept for backward compatibility)
+		narrativeSummary?: string;                     // neutral recap of what actually happened
+		observation?: string;                          // interpretation/lesson/insight
 		sentiment: { score: number };                  // -1..1
 		themes: { name: string; confidence?: number }[];
 		entities: {

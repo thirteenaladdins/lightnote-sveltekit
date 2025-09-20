@@ -10,7 +10,9 @@ export type Entry = {
 // AI output attached to the entry (v2 - evidence-first approach)
 export type EntryInsight = {
   entryId: string;
-  summary: string;                               // warm, ≤3 sentences
+  summary: string;                               // warm, ≤3 sentences (legacy - kept for backward compatibility)
+  narrativeSummary: string;                      // neutral recap of what actually happened
+  observation: string;                           // interpretation/lesson/insight
   sentiment: { score: number };                  // -1..1
   themes: { name: string; confidence?: number }[];
   entities: { 
@@ -57,7 +59,9 @@ export type EvidenceExtraction = {
 
 // Composition result from second LLM call
 export type InsightComposition = {
-  summary: string;
+  summary: string;                    // legacy - kept for backward compatibility
+  narrativeSummary: string;           // neutral recap of what actually happened
+  observation: string;                // interpretation/lesson/insight
   sentiment: { score: number };
   rationales: string[];
   micro: { nextAction: string; question: string };
@@ -73,4 +77,24 @@ export type WeeklyRollup = {
   moodDistribution: Record<string, number>; // mood value -> count
   createdAt: number;
   updatedAt?: number;
+};
+
+// Summary feedback for iteration and improvement
+export type SummaryFeedback = {
+  id: string;
+  entryId: string;
+  feedback: {
+    narrativeSummary?: 'wrong' | 'flat' | 'good';
+    observation?: 'wrong' | 'flat' | 'good';
+    summary?: 'wrong' | 'flat' | 'good';
+  };
+  summaryTexts: {
+    narrativeSummary?: string;
+    observation?: string;
+    summary?: string;
+  };
+  originalText: string; // The entry text that was summarized
+  createdAt: number;
+  updatedAt: number;
+  userComment?: string;
 };
