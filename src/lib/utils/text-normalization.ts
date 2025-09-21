@@ -141,7 +141,7 @@ function findFuzzyMatch(text: string, quote: string): { start: number; end: numb
 /**
  * Normalize quote text to handle common character differences
  */
-function normalizeQuoteText(text: string): string {
+export function normalizeQuoteText(text: string): string {
   return text
     .normalize('NFC')
     .replace(/\r\n/g, '\n')

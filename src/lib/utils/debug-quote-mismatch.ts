@@ -1,7 +1,7 @@
 // debug-quote-mismatch.ts — Debug quote mismatch issues
 
 import { getAllEntriesWithAnalysis } from '../stores/entries.js';
-import { normalizeForStorage } from './text-normalization.js';
+import { normalizeForStorage, normalizeQuoteText } from './text-normalization.js';
 
 /**
  * Debug function to investigate quote mismatch issues for a specific entry

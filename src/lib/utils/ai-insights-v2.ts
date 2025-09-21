@@ -9,36 +9,53 @@ import { segmentIntoSentences, segmentIntoTokens, resolveSpanSelections, generat
 /**
  * Chunk text into manageable pieces for processing
  */
-function chunkText(text: string, maxChunkSize: number = 1000): string[] {
-	const paragraphs = text.split('\n\n');
-	const chunks: string[] = [];
-	let currentChunk = '';
+function chunkText(
+	text: string,
+	maxChunkSize: number = 1000
+): { text: string; startOffset: number }[] {
+	const chunks: { text: string; startOffset: number }[] = [];
+	let offset = 0;
 
-	for (const paragraph of paragraphs) {
-		if (currentChunk.length + paragraph.length <= maxChunkSize) {
-			currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
-		} else {
-			if (currentChunk) {
-				chunks.push(currentChunk);
+	while (offset < text.length) {
+		let end = Math.min(offset + maxChunkSize, text.length);
+
+		if (end < text.length) {
+			// Prefer to break on natural boundaries to preserve readability
+			const boundary = Math.max(
+				text.lastIndexOf('\n\n', end - 1),
+				text.lastIndexOf('\n', end - 1),
+				text.lastIndexOf(' ', end - 1)
+			);
+
+			if (boundary > offset + maxChunkSize * 0.5) {
+				end = boundary;
 			}
-			currentChunk = paragraph;
 		}
+
+		const chunk = text.slice(offset, end);
+		if (!chunk.length) {
+			break;
+		}
+
+		chunks.push({ text: chunk, startOffset: offset });
+		offset = end;
 	}
-	
-	if (currentChunk) {
-		chunks.push(currentChunk);
-	}
-	
+
 	return chunks;
 }
 
 /**
  * Extract evidence using span-based selection (more reliable than text matching)
  */
-async function extractEvidenceWithSpans(text: string, chunkIndex: number = 0): Promise<EvidenceExtraction> {
+async function extractEvidenceWithSpans(
+	text: string,
+	chunkIndex: number = 0,
+	baseOffset: number = 0
+): Promise<EvidenceExtraction> {
 	console.log(`🔍 [AI-Insights-V2] Extracting evidence with spans from chunk ${chunkIndex}`, {
 		textLength: text.length,
-		textPreview: text.substring(0, 100) + '...'
+		textPreview: text.substring(0, 100) + '...',
+		baseOffset
 	});
 
 	// Pre-segment the text into sentences and tokens
@@ -80,12 +97,20 @@ async function extractEvidenceWithSpans(text: string, chunkIndex: number = 0): P
 
 	// Resolve selections to actual text spans
 	const resolvedSpans = resolveSpanSelections(spanSelections, sentences, tokens, text);
-	
-	console.log(`✅ [AI-Insights-V2] Resolved ${resolvedSpans.length} quote spans`);
-	console.log('🔍 [AI-Insights-V2] Resolved spans:', resolvedSpans.map(s => ({ text: s.text.substring(0, 50) + '...', start: s.start, end: s.end })));
+	const adjustedSpans = resolvedSpans.map((span) => ({
+		...span,
+		start: span.start + baseOffset,
+		end: span.end + baseOffset
+	}));
+
+	console.log(`✅ [AI-Insights-V2] Resolved ${adjustedSpans.length} quote spans`);
+	console.log(
+		'🔍 [AI-Insights-V2] Resolved spans:',
+		adjustedSpans.map((s) => ({ text: s.text.substring(0, 50) + '...', start: s.start, end: s.end }))
+	);
 
 		// Convert to key_sentences format
-		const keySentences = resolvedSpans.map((span, index) => ({
+		const keySentences = adjustedSpans.map((span, index) => ({
 			text: span.text,
 			start: span.start,
 			end: span.end,
@@ -429,14 +454,16 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 			
 			// Process chunks in parallel using span-based extraction
 			const chunkResults = await Promise.all(
-				chunks.map((chunk, index) => extractEvidenceWithSpans(chunk, index))
+				chunks.map(({ text, startOffset }, index) =>
+					extractEvidenceWithSpans(text, index, startOffset)
+				)
 			);
 			
 			// Merge evidence
 			evidence = mergeEvidence(chunkResults, { maxQuotes: 8, maxEntities: 5, maxThemes: 5 });
 		} else {
 			console.log('📄 [AI-Insights-V2] Using single-chunk approach with spans');
-			evidence = await extractEvidenceWithSpans(entry.text);
+			evidence = await extractEvidenceWithSpans(entry.text, 0, 0);
 		}
 
 		// Compose final insights

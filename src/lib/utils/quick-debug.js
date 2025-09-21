@@ -15,12 +15,12 @@ function quickDebug() {
 	console.log(`📊 Total entries: ${entries.length}`);
 
 	// Find entries with analysis
-	const entriesWithAnalysis = entries.filter((e) => e.analysis);
+	const entriesWithAnalysis = entries.filter((/** @type {any} */ e) => e.analysis);
 	console.log(`📊 Entries with analysis: ${entriesWithAnalysis.length}`);
 
 	if (entriesWithAnalysis.length > 0) {
 		console.log('📝 Entries with analysis:');
-		entriesWithAnalysis.forEach((entry, index) => {
+		entriesWithAnalysis.forEach((/** @type {any} */ entry, /** @type {number} */ index) => {
 			console.log(`  ${index + 1}. ID: ${entry.id}`);
 			console.log(`     Analysis EntryID: ${entry.analysis?.entryId}`);
 			console.log(`     Match: ${entry.id === entry.analysis?.entryId ? '✅' : '❌'}`);

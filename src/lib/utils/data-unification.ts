@@ -31,7 +31,12 @@ export function getCompleteEntry(entryId: string): CompleteEntry | null {
       observation: entry.analysis.observation,
       sentiment: entry.analysis.sentiment,
       themes: entry.analysis.themes,
-      entities: entry.analysis.entities,
+      entities: entry.analysis.entities.map(entity => ({
+        ...entity,
+        type: entity.type && ['person', 'org', 'place', 'task', 'self', 'other'].includes(entity.type) 
+          ? entity.type as "person"|"org"|"place"|"task"|"self"|"other"
+          : 'other' as const
+      })),
       model: entry.analysis.model,
       tokens: entry.analysis.tokens,
       createdAt: entry.analysis.createdAt,

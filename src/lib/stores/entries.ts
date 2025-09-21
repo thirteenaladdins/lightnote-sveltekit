@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { getSentiment } from '$lib/utils/sentiment';
 import { normalizeForStorage } from '$lib/utils/text-normalization';
 
@@ -313,18 +313,11 @@ export function isAnalysisStale(entryId: string, maxAgeHours: number = 24): bool
 
 // Helper function to get a unified entry with all data
 export function getUnifiedEntry(entryId: string): Entry | undefined {
-	let result: Entry | undefined;
-	entries.subscribe((entriesList) => {
-		result = entriesList.find((entry) => entry.id === entryId);
-	})();
-	return result;
+	const entriesList = get(entries);
+	return entriesList.find((entry) => entry.id === entryId);
 }
 
 // Helper function to get all entries with their analysis data
 export function getAllEntriesWithAnalysis(): Entry[] {
-	let result: Entry[] = [];
-	entries.subscribe((entriesList) => {
-		result = entriesList;
-	})();
-	return result;
+	return get(entries);
 }

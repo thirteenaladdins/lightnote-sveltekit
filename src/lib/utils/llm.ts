@@ -99,11 +99,18 @@ async function safeText(res: Response): Promise<string> {
 export function parseJSONLoose(s: string): any {
   const m = s && s.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const raw = m ? m[1] : s || "";
+
+  const stripComments = (input: string): string =>
+    input
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, (match, prefix) => (prefix ?? ""));
+
+  const sanitized = stripComments(raw);
   try {
-    return JSON.parse(raw);
+    return JSON.parse(sanitized);
   } catch {}
   try {
-    const fixed = raw
+    const fixed = sanitized
       .replace(/,(\s*[}\]])/g, "$1")
       .replace(/[""]/g, '"')
       .replace(/['']/g, "'");

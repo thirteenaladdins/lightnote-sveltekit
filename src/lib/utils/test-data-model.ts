@@ -15,13 +15,34 @@ export function testDataModel() {
 
 	console.log('📝 Created test entry:', testEntry);
 
+	// Convert Entry to StoreEntry for addEntry
+	const storeEntry: StoreEntry = {
+		id: testEntry.id,
+		created: testEntry.createdAt,
+		updated: testEntry.updatedAt,
+		text: testEntry.text,
+		tags: [],
+		compound: 0.8, // positive sentiment
+		meta: {
+			sent: {
+				compound: 0.8,
+				pos: 0.7,
+				neu: 0.2,
+				neg: 0.1,
+				label: 'positive'
+			}
+		}
+	};
+
 	// Add entry to store
-	addEntry(testEntry);
+	addEntry(storeEntry);
 
 	// Create a test insight
 	const testInsight: EntryInsight = createEntryInsight(
 		testEntry.id,
 		"User had a wonderful day at the park with Sarah, enjoying beautiful flowers and perfect weather. The experience brought great happiness and positive emotions.",
+		"User spent time at the park with Sarah, observing beautiful flowers in perfect weather conditions.",
+		"The user experienced joy and contentment through nature and social connection.",
 		{ score: 0.8 }, // positive sentiment
 		[
 			{ name: "nature", confidence: 0.9 },
@@ -34,6 +55,13 @@ export function testDataModel() {
 			{ name: "flowers", type: "other", salience: 0.6, sentiment: 0.8 },
 			{ name: "weather", type: "other", salience: 0.5, sentiment: 0.9 }
 		],
+		[
+			{ text: "I had a great day today!", start: 0, end: 24, category: "decision" },
+			{ text: "Went to the park with Sarah", start: 25, end: 50, category: "past_experience" },
+			{ text: "I felt really happy", start: 100, end: 120, category: "consequence" }
+		],
+		{ nextAction: "Continue enjoying outdoor activities", question: "What other nature activities bring you joy?" },
+		["The user seems very happy with this experience"],
 		"gpt-4",
 		150
 	);
