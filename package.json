@@ -22,6 +22,7 @@
 		"@sveltejs/adapter-static": "^3.0.9",
 		"@sveltejs/kit": "^2.22.0",
 		"@sveltejs/vite-plugin-svelte": "^6.0.0",
+		"@types/dompurify": "^3.0.5",
 		"@types/node": "^20",
 		"@vitest/browser": "^3.2.3",
 		"eslint": "^9.22.0",
@@ -41,6 +42,7 @@
 	},
 	"dependencies": {
 		"@types/sentiment": "^5.0.4",
+		"dompurify": "^3.2.7",
 		"nanoid": "^5.1.5",
 		"sentiment": "^5.0.2"
 	}

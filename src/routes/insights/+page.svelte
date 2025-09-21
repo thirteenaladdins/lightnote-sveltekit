@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { entries } from '$lib/stores/entries';
+	import DOMPurify from 'dompurify';
 
 	let weeklyDigest = '';
 	let digestDates = '';
@@ -8,6 +9,11 @@
 	let insightStatus = '';
 	let insightCount = 0;
 	let savedInsights: any[] = [];
+
+	// Sanitize user input to prevent XSS
+	function sanitizeText(text: string): string {
+		return DOMPurify.sanitize(text, { ALLOWED_TAGS: [] });
+	}
 
 	onMount(() => {
 		loadInsights();
@@ -98,8 +104,8 @@
 				<div><b>Mood: ${(avgMood || 0).toFixed(2)} (${moodLabel})</b></div>
 			</div>
 			${topTags.length ? `<div class="theme-line">${topTags.map(([tag, count]) => `<span class="theme-pill">#${tag} (${count})</span>`).join(' ')}</div>` : ''}
-			${worst && worst.text ? `<div class="notable neg">Most negative: "${worst.text.slice(0, 120)}${worst.text.length > 120 ? '...' : ''}" (${(worst.compound || 0).toFixed(2)})</div>` : ''}
-			${best && best.text ? `<div class="notable pos">Most positive: "${best.text.slice(0, 120)}${best.text.length > 120 ? '...' : ''}" (${(best.compound || 0).toFixed(2)})</div>` : ''}
+			${worst && worst.text ? `<div class="notable neg">Most negative: "${sanitizeText(worst.text.slice(0, 120))}${worst.text.length > 120 ? '...' : ''}" (${(worst.compound || 0).toFixed(2)})</div>` : ''}
+			${best && best.text ? `<div class="notable pos">Most positive: "${sanitizeText(best.text.slice(0, 120))}${best.text.length > 120 ? '...' : ''}" (${(best.compound || 0).toFixed(2)})</div>` : ''}
 		`;
 	}
 
@@ -206,7 +212,7 @@
 					{new Date(insight.createdAt).toLocaleString()}
 					{insight.scope === 'week-ai' ? ' (AI Reflection)' : ''}
 				</h4>
-				<p style="white-space: pre-wrap; margin: 10px 0">{@html insight.text}</p>
+				<p style="white-space: pre-wrap; margin: 10px 0">{@html sanitizeText(insight.text)}</p>
 				<div class="flex" style="margin-top: 8px; gap: 8px">
 					<button class="secondary">Open week</button>
 					<button class="secondary destructive" on:click={() => deleteInsight(insight.id)}
