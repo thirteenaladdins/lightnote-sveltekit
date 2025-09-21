@@ -171,7 +171,8 @@ export function resolveSpanSelections(
   selections: SpanSelection[],
   sentences: TextSpan[],
   _tokens: TokenSpan[],
-  originalText?: string
+  originalText?: string,
+  baseOffset: number = 0
 ): { text: string; start: number; end: number; reason?: string }[] {
   const results: { text: string; start: number; end: number; reason?: string }[] = [];
 
@@ -183,16 +184,16 @@ export function resolveSpanSelections(
     if (selection.sid !== undefined) {
       const sentence = sentences.find((s) => s.sid === selection.sid);
       if (sentence) {
-        start = sentence.charStart;
-        end = sentence.charEnd;
+        start = sentence.charStart + baseOffset;
+        end = sentence.charEnd + baseOffset;
         text = originalText ? originalText.slice(start, end) : sentence.text;
       }
     } else if (selection.sidRange) {
       const startSentence = sentences.find((s) => s.sid === selection.sidRange![0]);
       const endSentence = sentences.find((s) => s.sid === selection.sidRange![1]);
       if (startSentence && endSentence) {
-        start = startSentence.charStart;
-        end = endSentence.charEnd;
+        start = startSentence.charStart + baseOffset;
+        end = endSentence.charEnd + baseOffset;
         text = originalText
           ? originalText.slice(start, end)
           : sentences

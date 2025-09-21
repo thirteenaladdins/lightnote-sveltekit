@@ -95,22 +95,17 @@ async function extractEvidenceWithSpans(
 		
 		console.log('🔍 [AI-Insights-V2] Span selections:', spanSelections);
 
-	// Resolve selections to actual text spans
-	const resolvedSpans = resolveSpanSelections(spanSelections, sentences, tokens, text);
-	const adjustedSpans = resolvedSpans.map((span) => ({
-		...span,
-		start: span.start + baseOffset,
-		end: span.end + baseOffset
-	}));
+	// Resolve selections to actual text spans with base offset
+	const resolvedSpans = resolveSpanSelections(spanSelections, sentences, tokens, text, baseOffset);
 
-	console.log(`✅ [AI-Insights-V2] Resolved ${adjustedSpans.length} quote spans`);
+	console.log(`✅ [AI-Insights-V2] Resolved ${resolvedSpans.length} quote spans`);
 	console.log(
 		'🔍 [AI-Insights-V2] Resolved spans:',
-		adjustedSpans.map((s) => ({ text: s.text.substring(0, 50) + '...', start: s.start, end: s.end }))
+		resolvedSpans.map((s) => ({ text: s.text.substring(0, 50) + '...', start: s.start, end: s.end }))
 	);
 
 		// Convert to key_sentences format
-		const keySentences = adjustedSpans.map((span, index) => ({
+		const keySentences = resolvedSpans.map((span, index) => ({
 			text: span.text,
 			start: span.start,
 			end: span.end,
