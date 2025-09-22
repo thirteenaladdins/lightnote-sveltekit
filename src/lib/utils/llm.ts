@@ -1,13 +1,22 @@
 // llm.ts — LLM integration utilities (OpenAI-compatible, with fallback parsing)
 
+// In-memory storage for sensitive LLM configuration
+let llmConfig: {
+  url: string;
+  token: string;
+  model: string;
+  timeout: number;
+} = {
+  url: "",
+  token: "",
+  model: "",
+  timeout: 60000
+};
+
 /**
  * Ask the configured LLM endpoint for a response.
  *
- * Config expected in localStorage:
- *   ln.llm.url   → full endpoint (e.g. "https://api.together.xyz/v1/chat/completions")
- *   ln.llm.token → "Bearer sk-..." or raw token
- *   ln.llm.model → model id (provider-specific, e.g. "meta-llama/Meta-Llama-3-8B-Instruct-Turbo")
- *   ln.llm.timeout → ms (optional, default 60s)
+ * Configuration is stored in memory for security. Use setLLMConfig() to configure.
  */
 export async function llmAsk({
   prompt,
@@ -18,15 +27,12 @@ export async function llmAsk({
   system?: string;
   temperature?: number;
 }): Promise<string> {
-  const url = localStorage.getItem("ln.llm.url");
-  const token = localStorage.getItem("ln.llm.token");
-  const model = localStorage.getItem("ln.llm.model");
-  const tmo = +(localStorage.getItem("ln.llm.timeout") || "60000");
+  const { url, token, model, timeout: tmo } = llmConfig;
 
   if (!url)
-    throw new Error("No LLM endpoint configured. Set ln.llm.url in Settings.");
+    throw new Error("No LLM endpoint configured. Use setLLMConfig() to configure.");
   if (!model)
-    throw new Error("No LLM model configured. Set ln.llm.model in Settings.");
+    throw new Error("No LLM model configured. Use setLLMConfig() to configure.");
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token)
@@ -121,16 +127,26 @@ export function parseJSONLoose(s: string): any {
 }
 
 /**
- * Check if LLM is configured
+ * Set LLM configuration in memory (secure)
  */
-export function isLLMConfigured(): boolean {
-  const url = localStorage.getItem("ln.llm.url");
-  const model = localStorage.getItem("ln.llm.model");
-  return !!(url && model);
+export function setLLMConfig(config: {
+  url: string;
+  token: string;
+  model: string;
+  timeout: number;
+}): void {
+  llmConfig = { ...config };
 }
 
 /**
- * Get LLM configuration
+ * Check if LLM is configured
+ */
+export function isLLMConfigured(): boolean {
+  return !!(llmConfig.url && llmConfig.model);
+}
+
+/**
+ * Get LLM configuration (returns current in-memory config)
  */
 export function getLLMConfig(): {
   url: string;
@@ -138,16 +154,32 @@ export function getLLMConfig(): {
   model: string;
   timeout: number;
 } {
-  return {
-    url: localStorage.getItem("ln.llm.url") || "",
-    token: localStorage.getItem("ln.llm.token") || "",
-    model: localStorage.getItem("ln.llm.model") || "",
-    timeout: +(localStorage.getItem("ln.llm.timeout") || "60000"),
-  };
+  return { ...llmConfig };
 }
 
 /**
- * Save LLM configuration
+ * Load LLM configuration from localStorage (for migration/backward compatibility)
+ * Only loads non-sensitive configuration, requires manual token setting
+ */
+export function loadLLMConfigFromStorage(): void {
+  if (typeof window !== 'undefined') {
+    const url = localStorage.getItem("ln.llm.url");
+    const model = localStorage.getItem("ln.llm.model");
+    const timeout = +(localStorage.getItem("ln.llm.timeout") || "60000");
+    
+    if (url || model) {
+      llmConfig.url = url || "";
+      llmConfig.model = model || "";
+      llmConfig.timeout = timeout;
+      // Note: token is not loaded from localStorage for security
+      console.log("Loaded LLM config from storage (excluding token for security)");
+    }
+  }
+}
+
+/**
+ * @deprecated Use setLLMConfig() instead for security
+ * This function is kept for backward compatibility but logs a warning
  */
 export function saveLLMConfig(config: {
   url: string;
@@ -155,8 +187,6 @@ export function saveLLMConfig(config: {
   model: string;
   timeout: number;
 }): void {
-  localStorage.setItem("ln.llm.url", config.url);
-  localStorage.setItem("ln.llm.token", config.token);
-  localStorage.setItem("ln.llm.model", config.model);
-  localStorage.setItem("ln.llm.timeout", config.timeout.toString());
+  console.warn("saveLLMConfig() is deprecated. Use setLLMConfig() for secure in-memory storage.");
+  setLLMConfig(config);
 }

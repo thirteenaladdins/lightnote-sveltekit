@@ -38,7 +38,6 @@ export function getCompleteEntry(entryId: string): CompleteEntry | null {
           : 'other' as const
       })),
       model: entry.analysis.model,
-      tokens: entry.analysis.tokens,
       createdAt: entry.analysis.createdAt,
       updatedAt: entry.analysis.updatedAt,
     } : null,
@@ -138,7 +137,6 @@ export function getDataStructureExample(): CompleteEntry {
         { name: "Self", type: "person" }
       ],
       model: "ai-insights-v1",
-      tokens: 5,
       createdAt: 1758142199047,
       updatedAt: undefined,
     },

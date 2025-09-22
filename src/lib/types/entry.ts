@@ -33,7 +33,6 @@ export type EntryInsight = {
   };
   uncertainties?: string[];                      // hedges the model adds
   model?: string; 
-  tokens?: number; 
   createdAt: number; 
   updatedAt?: number;
 };

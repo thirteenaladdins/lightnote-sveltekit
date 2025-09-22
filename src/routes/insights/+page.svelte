@@ -15,6 +15,21 @@
 		return DOMPurify.sanitize(text, { ALLOWED_TAGS: [] });
 	}
 
+	// Sanitize entire digest string with strict allowlist
+	function sanitizeDigest(html: string): string {
+		return DOMPurify.sanitize(html, {
+			ALLOWED_TAGS: ['h3', 'div', 'span', 'b', 'small'],
+			ALLOWED_ATTR: ['class']
+		});
+	}
+
+	// Validate entry shape to prevent logic bugs
+	function isEntry(
+		e: any
+	): e is { created: string; compound?: number; text?: string; tags?: string[] } {
+		return e && typeof e.created === 'string';
+	}
+
 	onMount(() => {
 		loadInsights();
 		updateDigest();
@@ -25,8 +40,15 @@
 	}
 
 	function loadInsights() {
-		const stored = localStorage.getItem('ln.insights');
-		savedInsights = stored ? JSON.parse(stored) : [];
+		try {
+			const raw = localStorage.getItem('ln.insights');
+			const parsed = raw ? JSON.parse(raw) : [];
+			savedInsights = Array.isArray(parsed) ? parsed : [];
+		} catch (error) {
+			console.error('Failed to parse stored insights from localStorage:', error);
+			console.log('Falling back to empty insights array to keep UI usable');
+			savedInsights = [];
+		}
 		insightCount = savedInsights.length;
 	}
 
@@ -59,8 +81,8 @@
 	function getEntriesForWeek(wk: string) {
 		const { start, end } = weekRangeFromKey(wk);
 		const s = +start;
-		const e = +end;
-		return $entries.filter((ei) => {
+		const e = +end + 86_400_000; // Add one full day to include the entire last day
+		return $entries.filter(isEntry).filter((ei) => {
 			const t = +new Date(ei.created);
 			return t >= s && t < e;
 		});
@@ -84,8 +106,8 @@
 		const avgMood = total > 0 ? entries.reduce((sum, e) => sum + (e.compound || 0), 0) / total : 0;
 		const moodLabel = avgMood >= 0.05 ? 'positive' : avgMood <= -0.05 ? 'negative' : 'neutral';
 
-		// Get top tags
-		const tagCounts: Record<string, number> = {};
+		// Get top tags (using Object.create(null) to prevent prototype pollution)
+		const tagCounts = Object.create(null) as Record<string, number>;
 		entries.forEach((e) => (e.tags || []).forEach((t) => (tagCounts[t] = (tagCounts[t] || 0) + 1)));
 		const topTags = Object.entries(tagCounts)
 			.sort((a, b) => b[1] - a[1])
@@ -96,17 +118,18 @@
 		const worst = sortedByMood[0];
 		const best = sortedByMood[sortedByMood.length - 1];
 
-		weeklyDigest = `
+		const rawDigest = `
 			<h3 class="mono">Weekly Digest — ${currentWeek}</h3>
 			<div class="subtle">${digestDates}</div>
 			<div class="digest-meta">
 				<div><b>Entries: ${total}</b></div>
 				<div><b>Mood: ${(avgMood || 0).toFixed(2)} (${moodLabel})</b></div>
 			</div>
-			${topTags.length ? `<div class="theme-line">${topTags.map(([tag, count]) => `<span class="theme-pill">#${tag} (${count})</span>`).join(' ')}</div>` : ''}
+			${topTags.length ? `<div class="theme-line">${topTags.map(([tag, count]) => `<span class="theme-pill">#${sanitizeText(tag)} (${count})</span>`).join(' ')}</div>` : ''}
 			${worst && worst.text ? `<div class="notable neg">Most negative: "${sanitizeText(worst.text.slice(0, 120))}${worst.text.length > 120 ? '...' : ''}" (${(worst.compound || 0).toFixed(2)})</div>` : ''}
 			${best && best.text ? `<div class="notable pos">Most positive: "${sanitizeText(best.text.slice(0, 120))}${best.text.length > 120 ? '...' : ''}" (${(best.compound || 0).toFixed(2)})</div>` : ''}
 		`;
+		weeklyDigest = sanitizeDigest(rawDigest);
 	}
 
 	function saveCurrentInsight() {
@@ -161,7 +184,6 @@
 
 	function prevWeek() {
 		currentWeek = prevWeekKey(currentWeek);
-		const entries = getEntriesForWeek(currentWeek);
 		updateDigest();
 	}
 

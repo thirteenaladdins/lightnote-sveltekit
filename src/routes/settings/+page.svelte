@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { addSentimentToEntries } from '$lib/stores/entries';
-	import { getLLMConfig, saveLLMConfig, isLLMConfigured } from '$lib/utils/llm';
+	import {
+		getLLMConfig,
+		setLLMConfig,
+		isLLMConfigured,
+		loadLLMConfigFromStorage
+	} from '$lib/utils/llm';
 
 	let llmUrl = '';
 	let llmToken = '';
@@ -14,6 +19,8 @@
 	let llmStatus = '';
 
 	onMount(() => {
+		// Load any existing configuration from localStorage for migration
+		loadLLMConfigFromStorage();
 		loadLlmSettings();
 	});
 
@@ -26,13 +33,13 @@
 	}
 
 	function saveLlmSettings() {
-		saveLLMConfig({
+		setLLMConfig({
 			url: llmUrl.trim(),
 			token: llmToken.trim(),
 			model: llmModel.trim(),
 			timeout: parseInt(llmTimeout) || 60000
 		});
-		llmStatus = 'LLM settings saved successfully!';
+		llmStatus = 'LLM settings saved securely in memory!';
 		setTimeout(() => {
 			llmStatus = '';
 		}, 3000);
@@ -65,14 +72,14 @@
 	}
 
 	function clearLlmSettings() {
-		saveLLMConfig({
+		setLLMConfig({
 			url: '',
 			token: '',
 			model: '',
 			timeout: 60000
 		});
 		loadLlmSettings();
-		alert('LLM settings cleared.');
+		alert('LLM settings cleared from memory.');
 	}
 
 	function downloadReadme() {
@@ -202,7 +209,8 @@ DATA & PRIVACY
 			</div>
 		{/if}
 		<small class="subtle"
-			>Stored in browser localStorage only. Configure these settings to enable AI insights.</small
+			>Stored securely in memory only. Configure these settings to enable AI insights. Settings are
+			not persisted to localStorage for security.</small
 		>
 	</div>
 </details>

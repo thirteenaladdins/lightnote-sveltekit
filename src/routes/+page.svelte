@@ -55,6 +55,29 @@
 		loadEntries();
 		pickPrompt();
 
+		// Listen for storage errors
+		const handleStorageError = (event: CustomEvent) => {
+			const { operation, error, errorType } = event.detail;
+			console.error('Storage error:', { operation, error, errorType });
+
+			// Show user-friendly error message
+			if (errorType === 'QuotaExceededError') {
+				status(
+					'Storage full! Your entry was too long to save. Try shortening it or clearing old entries.',
+					true
+				);
+			} else {
+				status(`Failed to save entry: ${error}`, true);
+			}
+		};
+
+		window.addEventListener('storageError', handleStorageError as EventListener);
+
+		// Cleanup listener on component destroy
+		return () => {
+			window.removeEventListener('storageError', handleStorageError as EventListener);
+		};
+
 		// Add debug functions to window for easy access
 		(window as any).debugData = () => {
 			console.log('🔍 [DEBUG] Analyzing data state...');
@@ -578,40 +601,45 @@
 			return;
 		}
 
-		const { compound, label } = getSentiment(text);
-		const tags = parseTags(text);
+		try {
+			const { compound, label } = getSentiment(text);
+			const tags = parseTags(text);
 
-		if (editingId) {
-			// Update existing entry
-			const entry = $entries.find((e) => e.id === editingId);
-			if (entry) {
-				updateEntry(editingId, {
-					...entry,
-					text,
-					prompt,
-					tags,
-					compound,
-					updated: Date.now()
-				});
-				status('Updated entry.');
-				endEditing();
+			if (editingId) {
+				// Update existing entry
+				const entry = $entries.find((e) => e.id === editingId);
+				if (entry) {
+					updateEntry(editingId, {
+						...entry,
+						text,
+						prompt,
+						tags,
+						compound,
+						updated: Date.now()
+					});
+					status('Updated entry.');
+					endEditing();
+				} else {
+					// Fallback to creating new entry
+					addNewEntry(prompt, text, tags, compound);
+					status('Saved (previous entry not found).');
+				}
 			} else {
-				// Fallback to creating new entry
+				// Create new entry
 				addNewEntry(prompt, text, tags, compound);
-				status('Saved (previous entry not found).');
+				status('Saved.');
 			}
-		} else {
-			// Create new entry
-			addNewEntry(prompt, text, tags, compound);
-			status('Saved.');
+
+			entryText = '';
+			customPrompt = '';
+			autoExpand(document.getElementById('entry') as HTMLTextAreaElement);
+
+			// Update streak after saving entry
+			window.dispatchEvent(new CustomEvent('updateStreak'));
+		} catch (error) {
+			console.error('Error saving entry:', error);
+			status('Failed to save entry. Please try again.', true);
 		}
-
-		entryText = '';
-		customPrompt = '';
-		autoExpand(document.getElementById('entry') as HTMLTextAreaElement);
-
-		// Update streak after saving entry
-		window.dispatchEvent(new CustomEvent('updateStreak'));
 	}
 
 	function addNewEntry(prompt: string, text: string, tags: string[], compound: number) {

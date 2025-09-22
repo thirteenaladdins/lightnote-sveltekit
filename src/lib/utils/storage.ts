@@ -38,6 +38,17 @@ export class StorageManager<T> {
       return true;
     } catch (error) {
       console.error(`Failed to save data to ${this.key}:`, error);
+      // Dispatch custom event for error handling
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('storageError', { 
+          detail: { 
+            operation: 'save', 
+            error: error instanceof Error ? error.message : 'Unknown error',
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+            storageKey: this.key
+          } 
+        }));
+      }
       return false;
     }
   }
@@ -51,6 +62,17 @@ export class StorageManager<T> {
       return true;
     } catch (error) {
       console.error(`Failed to clear data from ${this.key}:`, error);
+      // Dispatch custom event for error handling
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('storageError', { 
+          detail: { 
+            operation: 'clear', 
+            error: error instanceof Error ? error.message : 'Unknown error',
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+            storageKey: this.key
+          } 
+        }));
+      }
       return false;
     }
   }

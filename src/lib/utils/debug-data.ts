@@ -75,7 +75,6 @@ export function debugSpecificEntry(entryId: string) {
       entities: entry.analysis.entities,
       createdAt: new Date(entry.analysis.createdAt).toISOString(),
       model: entry.analysis.model,
-      tokens: entry.analysis.tokens
     } : null
   });
   

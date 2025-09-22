@@ -5,6 +5,10 @@ import type { EntryInsight, EvidenceExtraction, InsightComposition } from '../ty
 import type { Entry as StoreEntry } from '../stores/entries.js';
 import { setAnalysisForEntry, hasAnalysis, isAnalysisStale } from '../stores/entries.js';
 import { segmentIntoSentences, segmentIntoTokens, resolveSpanSelections, generateSpanSelectionPrompt, type SpanSelection } from './text-segmentation.js';
+import type { FirstPass, SecondPassOutput } from '../ai/types.js';
+import { normaliseFirstPass } from '../ai/derive.js';
+import { validateSecondPass } from '../ai/validate.js';
+import { SECOND_PASS_SUMMARY_PROMPT } from '../ai/prompts.js';
 
 /**
  * Chunk text into manageable pieces for processing
@@ -63,6 +67,14 @@ async function extractEvidenceWithSpans(
 	const tokens = segmentIntoTokens(text);
 	
 	console.log(`📊 [AI-Insights-V2] Segmented into ${sentences.length} sentences, ${tokens.length} tokens`);
+	
+	// Debug: Check for duplicate sentences
+	const duplicateSentences = sentences.filter((sentence, index, arr) => 
+		arr.findIndex(s => s.text === sentence.text && s.charStart === sentence.charStart && s.charEnd === sentence.charEnd) !== index
+	);
+	if (duplicateSentences.length > 0) {
+		console.warn(`⚠️ [AI-Insights-V2] Found ${duplicateSentences.length} duplicate sentences in chunk ${chunkIndex}:`, duplicateSentences);
+	}
 
 	const prompt = generateSpanSelectionPrompt(text, sentences, tokens);
 
@@ -79,6 +91,16 @@ async function extractEvidenceWithSpans(
 			throw new Error('Invalid JSON response from evidence extraction');
 		}
 		
+		// Debug: Check if quotes array has duplicates before processing
+		if (Array.isArray(parsed.quotes)) {
+			const duplicateQuotes = parsed.quotes.filter((quote: any, index: number, arr: any[]) => 
+				arr.findIndex((q: any) => JSON.stringify(q) === JSON.stringify(quote)) !== index
+			);
+			if (duplicateQuotes.length > 0) {
+				console.warn(`⚠️ [AI-Insights-V2] Found ${duplicateQuotes.length} duplicate quotes in LLM response for chunk ${chunkIndex}:`, duplicateQuotes);
+			}
+		}
+		
 		console.log('🔍 [AI-Insights-V2] Parsed LLM response:', {
 			quotes: parsed.quotes?.length || 0,
 			emotions: parsed.emotions?.length || 0,
@@ -87,6 +109,7 @@ async function extractEvidenceWithSpans(
 		});
 		
 		console.log('🔍 [AI-Insights-V2] Raw quotes from LLM:', parsed.quotes);
+		console.log('🔍 [AI-Insights-V2] Full LLM response:', response);
 
 		// Extract span selections
 		const spanSelections: SpanSelection[] = Array.isArray(parsed.quotes) 
@@ -94,6 +117,18 @@ async function extractEvidenceWithSpans(
 			: [];
 		
 		console.log('🔍 [AI-Insights-V2] Span selections:', spanSelections);
+		
+		// Debug: Check for duplicate selections from LLM
+		const duplicateSelections = spanSelections.filter((selection, index, arr) => 
+			arr.findIndex(s => 
+				(s.sid === selection.sid && s.sidRange === selection.sidRange) ||
+				(s.sidRange && selection.sidRange && 
+				 s.sidRange[0] === selection.sidRange[0] && s.sidRange[1] === selection.sidRange[1])
+			) !== index
+		);
+		if (duplicateSelections.length > 0) {
+			console.warn(`⚠️ [AI-Insights-V2] Found ${duplicateSelections.length} duplicate selections from LLM in chunk ${chunkIndex}:`, duplicateSelections);
+		}
 
 	// Resolve selections to actual text spans with base offset
 	const resolvedSpans = resolveSpanSelections(spanSelections, sentences, tokens, text, baseOffset);
@@ -103,14 +138,46 @@ async function extractEvidenceWithSpans(
 		'🔍 [AI-Insights-V2] Resolved spans:',
 		resolvedSpans.map((s) => ({ text: s.text.substring(0, 50) + '...', start: s.start, end: s.end }))
 	);
+	
+	// Debug: Check for duplicates in resolved spans
+	const duplicateResolvedSpans = resolvedSpans.filter((span, index, arr) => 
+		arr.findIndex(s => s.text === span.text && s.start === span.start && s.end === span.end) !== index
+	);
+	if (duplicateResolvedSpans.length > 0) {
+		console.warn(`⚠️ [AI-Insights-V2] Found ${duplicateResolvedSpans.length} duplicate resolved spans in chunk ${chunkIndex}:`, duplicateResolvedSpans);
+	}
 
 		// Convert to key_sentences format
-		const keySentences = resolvedSpans.map((span, index) => ({
+		const rawKeySentences = resolvedSpans.map((span, index) => ({
 			text: span.text,
 			start: span.start,
 			end: span.end,
 			category: determineQuoteCategory(span.text, span.reason) as 'temptation' | 'past_experience' | 'conflict' | 'decision' | 'consequence' | undefined
 		}));
+
+		// Debug: Check for duplicates before deduplication
+		const duplicates = rawKeySentences.filter((sentence, index, arr) => 
+			arr.findIndex(s => s.text === sentence.text && s.start === sentence.start && s.end === sentence.end) !== index
+		);
+		if (duplicates.length > 0) {
+			console.warn(`⚠️ [AI-Insights-V2] Found ${duplicates.length} duplicate key sentences in chunk ${chunkIndex} before deduplication:`, duplicates);
+			console.warn(`⚠️ [AI-Insights-V2] Pipeline trace for chunk ${chunkIndex}:`, {
+				originalText: text.substring(0, 200) + '...',
+				sentencesCount: sentences.length,
+				spanSelectionsCount: spanSelections.length,
+				resolvedSpansCount: resolvedSpans.length,
+				rawKeySentencesCount: rawKeySentences.length,
+				duplicatesCount: duplicates.length
+			});
+		}
+
+		// Deduplicate key sentences (same logic as mergeEvidence)
+		// This is necessary because single-chunk entries bypass mergeEvidence deduplication
+		const keySentences = rawKeySentences.filter((sentence, index, arr) => 
+			arr.findIndex(s => s.text === sentence.text && s.start === sentence.start && s.end === sentence.end) === index
+		);
+
+		console.log(`✅ [AI-Insights-V2] Deduplicated key sentences: ${rawKeySentences.length} → ${keySentences.length} in chunk ${chunkIndex}`);
 
 		// Extract other evidence (emotions, themes, entities, uncertainties)
 		const emotions = Array.isArray(parsed.emotions)
@@ -220,11 +287,23 @@ function mergeEvidence(
 		options
 	});
 
-	// Merge key sentences (dedupe by text)
+	// Merge key sentences (dedupe by text AND position to avoid true duplicates)
 	const allSentences = evidenceList.flatMap(e => e.key_sentences);
+	console.log(`🔄 [AI-Insights-V2] Total sentences before deduplication: ${allSentences.length}`);
+	
 	const uniqueSentences = allSentences.filter((sentence, index, arr) => 
-		arr.findIndex(s => s.text === sentence.text) === index
+		arr.findIndex(s => s.text === sentence.text && s.start === sentence.start && s.end === sentence.end) === index
 	).slice(0, options.maxQuotes);
+	
+	console.log(`🔄 [AI-Insights-V2] Unique sentences after deduplication: ${uniqueSentences.length}`);
+	
+	// Debug: Log any remaining duplicates
+	const remainingDuplicates = uniqueSentences.filter((sentence, index, arr) => 
+		arr.findIndex(s => s.text === sentence.text && s.start === sentence.start && s.end === sentence.end) !== index
+	);
+	if (remainingDuplicates.length > 0) {
+		console.warn(`⚠️ [AI-Insights-V2] Found ${remainingDuplicates.length} remaining duplicates after deduplication:`, remainingDuplicates);
+	}
 
 	// Merge emotions (dedupe by label, keep highest confidence)
 	const emotionMap = new Map<string, number>();
@@ -280,6 +359,58 @@ function mergeEvidence(
 }
 
 /**
+ * Run second-pass summary analysis using first-pass results
+ */
+async function runSecondPassSummary(
+	firstPass: FirstPass,
+	sentenceData: unknown,
+	userMood?: number
+): Promise<SecondPassOutput> {
+	console.log('🎯 [AI-Insights-V2] Running second-pass summary analysis', {
+		quotes: firstPass.quotes.length,
+		themes: firstPass.themes.length,
+		entities: firstPass.entities.length,
+		relations: firstPass.relations.length,
+		userMood
+	});
+
+	let agreementCheck = '';
+	if (userMood !== undefined) {
+		agreementCheck = `\n\nUser mood: ${userMood} (scale: -2 to +2)`;
+	}
+
+	const prompt = SECOND_PASS_SUMMARY_PROMPT(sentenceData, firstPass) + agreementCheck;
+
+	try {
+		const response = await llmAsk({
+			prompt,
+			system: "You are a supportive personal coach who excels at identifying internal conflicts and contradictions. Write warm, evidence-based insights in UK English. Always cite specific quotes when making claims. Pay special attention to conflicting desires and emotional tensions. CRITICAL: Keep summaries warm and first-person, avoid clinical labels in observations, and only include themes/entities with explicit quote support.",
+			temperature: 0.3,
+		});
+
+		const parsed = parseJSONLoose(response);
+		if (!parsed || typeof parsed !== 'object') {
+			console.error('❌ [AI-Insights-V2] Invalid JSON response from second-pass:', response);
+			throw new Error('Invalid JSON response from second-pass');
+		}
+
+		// Validate the second-pass output
+		const validated = validateSecondPass(JSON.stringify(parsed), firstPass);
+
+		console.log('✅ [AI-Insights-V2] Second-pass analysis completed', {
+			summary: validated.summary.substring(0, 100) + '...',
+			rationales: validated.rationales.length,
+			usedQuoteSids: validated.trace.usedQuoteSids.length
+		});
+
+		return validated;
+	} catch (error) {
+		console.error('❌ [AI-Insights-V2] Second-pass analysis failed:', error);
+		throw error;
+	}
+}
+
+/**
  * Compose insights from merged evidence
  */
 async function composeInsights(
@@ -326,7 +457,7 @@ CRITICAL RULES:
 	try {
 		const response = await llmAsk({
 			prompt,
-			system: "You are a supportive personal coach who excels at identifying internal conflicts and contradictions. Write warm, evidence-based insights in UK English. Always cite specific quotes when making claims. Pay special attention to conflicting desires and emotional tensions.",
+			system: "You are a supportive personal coach who excels at identifying internal conflicts and contradictions. Write warm, evidence-based insights in UK English. Always cite specific quotes when making claims. Pay special attention to conflicting desires and emotional tensions. CRITICAL: Keep summaries warm and first-person, avoid clinical labels in observations, and only include themes/entities with explicit quote support.",
 			temperature: 0.3,
 		});
 
@@ -407,7 +538,6 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 			micro: existingAnalysis.micro,
 			uncertainties: existingAnalysis.uncertainties,
 			model: existingAnalysis.model || 'cached',
-			tokens: existingAnalysis.tokens || 0,
 			createdAt: existingAnalysis.createdAt,
 			updatedAt: existingAnalysis.updatedAt
 		};
@@ -436,8 +566,8 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 	}
 
 	try {
+		// First pass: Extract evidence with enhanced schema
 		let evidence: EvidenceExtraction;
-		let totalTokens = 0;
 
 		// Determine if we need chunking
 		const shouldChunk = entry.text.length > 2000;
@@ -461,25 +591,89 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 			evidence = await extractEvidenceWithSpans(entry.text, 0, 0);
 		}
 
-		// Compose final insights
-		const composition = await composeInsights(evidence, (entry as any).userMood);
+		// Run first-pass LLM to extract relations and get proper first-pass data
+		const sentences = segmentIntoSentences(entry.text);
+		const sentenceData = sentences.map(s => ({
+			sid: s.sid,
+			text: s.text,
+			tokenCount: s.tokenCount
+		}));
+
+		const firstPassPrompt = generateSpanSelectionPrompt(entry.text, sentences, segmentIntoTokens(entry.text));
+		
+		let firstPass: FirstPass;
+		try {
+			const firstPassResponse = await llmAsk({
+				prompt: firstPassPrompt,
+				system: "You are a precise evidence extractor. Select key quotes using the provided sentence IDs and token indices. Return only valid JSON.",
+				temperature: 0.1,
+			});
+
+			const parsedFirstPass = parseJSONLoose(firstPassResponse);
+			if (!parsedFirstPass || typeof parsedFirstPass !== 'object') {
+				console.error('❌ [AI-Insights-V2] Invalid JSON response from first-pass:', firstPassResponse);
+				throw new Error('Invalid JSON response from first-pass');
+			}
+
+			// Convert to FirstPass format
+			firstPass = {
+				quotes: Array.isArray(parsedFirstPass.quotes) ? parsedFirstPass.quotes : [],
+				emotions: Array.isArray(parsedFirstPass.emotions) ? parsedFirstPass.emotions : [],
+				themes: Array.isArray(parsedFirstPass.themes) ? parsedFirstPass.themes : [],
+				entities: Array.isArray(parsedFirstPass.entities) ? parsedFirstPass.entities : [],
+				relations: Array.isArray(parsedFirstPass.relations) ? parsedFirstPass.relations : [],
+				observation: parsedFirstPass.observation || { text: "Analysis based on extracted quotes", evidenceSids: [] },
+				coverage: parsedFirstPass.coverage || { begin: true, middle: true, end: true },
+				buckets: parsedFirstPass.buckets || { feeling: true, rule: false, consequence: false, decision: false, missing: [] },
+				quoteSidList: []
+			};
+		} catch (error) {
+			console.error('❌ [AI-Insights-V2] First-pass extraction failed, using fallback:', error);
+			// Fallback to basic structure
+			firstPass = {
+				quotes: evidence.key_sentences.map((ks, index) => ({
+					sid: index,
+					reason: ks.category || 'insight',
+					themeIds: [],
+					entityIds: []
+				})),
+				emotions: evidence.emotions,
+				themes: evidence.themes.map(t => ({ id: `t.${t.name.toLowerCase().replace(/\s+/g, '_')}`, name: t.name, confidence: t.confidence })),
+				entities: evidence.entities.map(e => ({ id: `e.${e.name.toLowerCase().replace(/\s+/g, '_')}`, name: e.name, type: e.type, salience: e.salience, sentiment: e.sentiment })),
+				relations: [],
+				observation: { text: "Analysis based on extracted quotes", evidenceSids: [] },
+				coverage: { begin: true, middle: true, end: true },
+				buckets: { feeling: true, rule: false, consequence: false, decision: false, missing: [] },
+				quoteSidList: []
+			};
+		}
+
+		// Normalize first pass to add quoteSidList
+		const normalizedFirstPass = normaliseFirstPass(firstPass);
+
+		// Second pass: Generate summary using first-pass results
+		const secondPassResult = await runSecondPassSummary(normalizedFirstPass, sentenceData, (entry as any).userMood);
 
 		// Create final insight object
 		const insight: EntryInsight = {
 			entryId: entry.id,
-			summary: composition.summary,
-			narrativeSummary: composition.narrativeSummary,
-			observation: composition.observation,
-			sentiment: composition.sentiment,
-			themes: evidence.themes,
-			entities: evidence.entities,
+			summary: secondPassResult.summary,
+			narrativeSummary: secondPassResult.narrativeSummary,
+			observation: secondPassResult.observation,
+			sentiment: { score: secondPassResult.sentiment.score },
+			themes: secondPassResult.trace.usedThemes.map(name => ({ name, confidence: 0.8 })),
+			entities: secondPassResult.trace.usedEntities.map(name => ({ name, type: 'entity', salience: 0.8, sentiment: 0 })),
 			keySentences: evidence.key_sentences,
-			micro: composition.micro,
+			micro: secondPassResult.micro,
 			uncertainties: evidence.uncertainties,
 			model: 'ai-insights-v2',
-			tokens: totalTokens,
 			createdAt: Date.now()
 		};
+
+		// Log surfaced relations for debugging
+		if (secondPassResult.surfacedRelations && secondPassResult.surfacedRelations.length > 0) {
+			console.log('🔗 [AI-Insights-V2] Surfaced relations:', secondPassResult.surfacedRelations.map(r => `${r.type}: ${r.note}`));
+		}
 
 		console.log('✅ [AI-Insights-V2] Analysis completed', {
 			summary: insight.summary.substring(0, 100) + '...',
@@ -501,7 +695,6 @@ export async function generateEntryInsightsV2(entry: StoreEntry, forceRefresh: b
 			micro: insight.micro,
 			uncertainties: insight.uncertainties,
 			model: insight.model,
-			tokens: insight.tokens,
 			createdAt: insight.createdAt
 		};
 		

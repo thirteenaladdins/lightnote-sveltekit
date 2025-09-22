@@ -236,51 +236,46 @@ ${JSON.stringify(sentenceData, null, 2)}
 Return JSON using this schema (t1 is EXCLUSIVE):
 {
   "quotes": [
-    // Prefer full sentences via "sid" or consecutive sentences via "sidRange".
-    // Use token or char ranges ONLY when the idea is fully contained in one sentence.
-    { "sid": 3, "reason": "process plan" },
+    { "sid": 3, "reason": "process plan", "themeIds": ["t.change"], "entityIds": ["e.dave"] },
     { "sidRange": [7, 9], "reason": "emotional moment" },
-    { "sid": 12, "reason": "decision point" },
-    // Optional partial within a single sentence (t1 exclusive):
-    // { "sid": 5, "t0": 2, "t1": 7, "reason": "cause" }
-    // Or character offsets within the sentence string:
-    // { "sid": 5, "char0": 14, "char1": 42, "reason": "detail" }
+    { "sid": 12, "reason": "decision point" }
   ],
   "emotions": [{ "label": "joy", "confidence": 0.80 }],
-  "themes":   [{ "name": "work process", "confidence": 0.90 }],
-  "entities": [{ "name": "John", "type": "person", "salience": 0.70, "sentiment": 0.20 }],
-  "observation": {
-    "text": "Interpretive but grounded statement; NO new concepts not present in the sentences.",
-    "evidenceSids": [3, 7]   // cite the sids that justify the observation
-  },
+  "themes":   [{ "id": "t.change", "name": "change", "confidence": 0.90 }],
+  "entities": [{ "id": "e.dave", "name": "Dave", "type": "person", "salience": 0.70, "sentiment": 0.20 }],
+  "relations": [
+    { "type": "contradiction", "sidA": 4, "sidB": 9, "note": "claim vs action", "confidence": 0.85 },
+    { "type": "uncertainty", "sidA": 7, "note": "unclear about next steps", "confidence": 0.70 },
+    { "type": "escalation", "sidA": 2, "sidB": 8, "note": "frustration building", "confidence": 0.80 }
+  ],
+  "observation": { "text": "Interpretive but grounded; no new concepts.", "evidenceSids": [3,7] },
   "coverage": { "begin": true, "middle": false, "end": true },
-  "buckets": {
-    "feeling": true,          // (a) desire/feeling present?
-    "rule": true,             // (b) rule/boundary (“should/shouldn’t”) present?
-    "consequence": false,     // (c) consequence/fear present?
-    "decision": false,        // (d) explicit decision present?
-    "missing": ["consequence","decision"]
-  },
-  "uncertainties": []
+  "buckets": { "feeling": true, "rule": true, "consequence": false, "decision": false, "missing": ["consequence","decision"] }
 }
 
 Selection Rules:
-- STRONGLY PREFER "sid" (full sentence) or "sidRange" (consecutive sentences).
-- Use "t0"/"t1" (t1 is EXCLUSIVE) or "char0"/"char1" ONLY if the idea is fully contained within a single sentence
-  AND bounded by punctuation (commas, dashes, semicolons). Snap to clean word boundaries.
-- Select 3–6 quotes total. Aim to cover: feeling → reason → consequence; include a decision if present.
-- If the entry is a brain dump, pick the most representative 3–6 sentences (strongest emotion or repeated idea).
+- STRONGLY PREFER "sid" or "sidRange" (consecutive).
+- Use "t0/t1" or "char0/char1" ONLY if idea is fully within a single sentence and bounded by punctuation; snap to word boundaries.
+- Select 3–6 quotes total. Aim to cover: feeling → rule/boundary → consequence → decision (if present).
+- If brain-dump, pick the most representative 3–6 sentences by emotion intensity or repetition.
+
+Relations Rules:
+- Identify contradictions, uncertainties, escalations, patterns, or tensions between quotes
+- Use "contradiction" for conflicting statements/actions
+- Use "uncertainty" for unclear or hesitant statements
+- Use "escalation" for building intensity or emotion
+- Use "pattern" for repeated themes or behaviors
+- Use "tension" for unresolved conflicts or dilemmas
+- Include confidence score (0-1) for each relation
+- sidB is optional for single-sentence relations
 
 Diversity Requirements:
-Choose at least one quote for:
-(a) desire/feeling
-(b) rule/boundary ("should/shouldn't")
-(c) consequence/fear
-(d) decision (if present)
-If any are missing, list them under buckets.missing.
+Include at least one quote for (a) desire/feeling, (b) rule/boundary ("should/shouldn't"), (c) consequence/fear, (d) decision (if present). List any missing under buckets.missing.
 
 Important:
-- Select complete thoughts; avoid mid-word fragments.
-- Do NOT invent new topics in "observation"; it must be supported by the cited evidenceSids.
-- Keep each "reason" as a short label (≤ 3 words).`;
+- Complete thoughts only; avoid mid-word fragments.
+- "observation" must be supported by evidenceSids; no new topics.
+- Keep every "reason" ≤ 3 words.
+- Emit stable ids for themes/entities if obvious; ids may be simple slugs.
+- Output MUST be valid JSON.`;
 }

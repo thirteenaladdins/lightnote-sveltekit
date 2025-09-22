@@ -62,7 +62,16 @@ function createEntriesStore() {
 		load: () => {
 			if (typeof window !== 'undefined') {
 				const stored = localStorage.getItem(STORAGE_KEY);
-				const entries = stored ? JSON.parse(stored) : [];
+				let entries = [];
+				if (stored) {
+					try {
+						entries = JSON.parse(stored);
+					} catch (error) {
+						console.error('Failed to parse stored entries from localStorage:', error);
+						console.log('Falling back to empty entries array to keep UI usable');
+						entries = [];
+					}
+				}
 				// Filter out any invalid entries that don't have required properties
 				const validEntries = entries.filter((entry: any) => 
 					entry && 
@@ -75,15 +84,43 @@ function createEntriesStore() {
 		},
 		save: (entries: Entry[]) => {
 			if (typeof window !== 'undefined') {
-				localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-				set(entries);
+				try {
+					localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+					set(entries);
+				} catch (error) {
+					console.error('Failed to save entries to localStorage:', error);
+					// Still update the store even if localStorage fails
+					set(entries);
+					// Dispatch custom event for error handling
+					if (typeof window !== 'undefined') {
+						window.dispatchEvent(new CustomEvent('storageError', { 
+							detail: { 
+								operation: 'save', 
+								error: error instanceof Error ? error.message : 'Unknown error',
+								errorType: error instanceof Error ? error.name : 'UnknownError'
+							} 
+						}));
+					}
+				}
 			}
 		},
 		add: (entry: Entry) => {
 			update(entries => {
 				const newEntries = [...entries, entry];
 				if (typeof window !== 'undefined') {
-					localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
+					try {
+						localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
+					} catch (error) {
+						console.error('Failed to add entry to localStorage:', error);
+						// Dispatch custom event for error handling
+						window.dispatchEvent(new CustomEvent('storageError', { 
+							detail: { 
+								operation: 'add', 
+								error: error instanceof Error ? error.message : 'Unknown error',
+								errorType: error instanceof Error ? error.name : 'UnknownError'
+							} 
+						}));
+					}
 				}
 				return newEntries;
 			});
@@ -94,7 +131,19 @@ function createEntriesStore() {
 					entry.id === id ? updatedEntry : entry
 				);
 				if (typeof window !== 'undefined') {
-					localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
+					try {
+						localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
+					} catch (error) {
+						console.error('Failed to update entry in localStorage:', error);
+						// Dispatch custom event for error handling
+						window.dispatchEvent(new CustomEvent('storageError', { 
+							detail: { 
+								operation: 'update', 
+								error: error instanceof Error ? error.message : 'Unknown error',
+								errorType: error instanceof Error ? error.name : 'UnknownError'
+							} 
+						}));
+					}
 				}
 				return newEntries;
 			});
@@ -103,14 +152,38 @@ function createEntriesStore() {
 			update(entries => {
 				const newEntries = entries.filter(entry => entry.id !== id);
 				if (typeof window !== 'undefined') {
-					localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
+					try {
+						localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
+					} catch (error) {
+						console.error('Failed to delete entry from localStorage:', error);
+						// Dispatch custom event for error handling
+						window.dispatchEvent(new CustomEvent('storageError', { 
+							detail: { 
+								operation: 'delete', 
+								error: error instanceof Error ? error.message : 'Unknown error',
+								errorType: error instanceof Error ? error.name : 'UnknownError'
+							} 
+						}));
+					}
 				}
 				return newEntries;
 			});
 		},
 		clear: () => {
 			if (typeof window !== 'undefined') {
-				localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+				try {
+					localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+				} catch (error) {
+					console.error('Failed to clear entries from localStorage:', error);
+					// Dispatch custom event for error handling
+					window.dispatchEvent(new CustomEvent('storageError', { 
+						detail: { 
+							operation: 'clear', 
+							error: error instanceof Error ? error.message : 'Unknown error',
+							errorType: error instanceof Error ? error.name : 'UnknownError'
+						} 
+					}));
+				}
 			}
 			set([]);
 		},
@@ -139,7 +212,19 @@ function createEntriesStore() {
 				});
 				
 				if (typeof window !== 'undefined') {
-					localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedEntries));
+					try {
+						localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedEntries));
+					} catch (error) {
+						console.error('Failed to save sentiment updates to localStorage:', error);
+						// Dispatch custom event for error handling
+						window.dispatchEvent(new CustomEvent('storageError', { 
+							detail: { 
+								operation: 'addSentiment', 
+								error: error instanceof Error ? error.message : 'Unknown error',
+								errorType: error instanceof Error ? error.name : 'UnknownError'
+							} 
+						}));
+					}
 				}
 				return updatedEntries;
 			});
@@ -236,8 +321,21 @@ export function setAnalysisForEntry(entryId: string, analysis: Entry['analysis']
 	});
 	
 	// Save to localStorage
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
-	console.log('💾 [Store] Saved to localStorage');
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(newEntries));
+		console.log('💾 [Store] Saved to localStorage');
+	} catch (error) {
+		console.error('❌ [Store] Failed to save analysis to localStorage:', error);
+		// Dispatch custom event for error handling
+		window.dispatchEvent(new CustomEvent('storageError', { 
+			detail: { 
+				operation: 'setAnalysis', 
+				error: error instanceof Error ? error.message : 'Unknown error',
+				errorType: error instanceof Error ? error.name : 'UnknownError'
+			} 
+		}));
+		return; // Don't update the store if localStorage fails
+	}
 	
 	// Update the store using the store's update method
 	entries.update(entryId, updatedEntry);
