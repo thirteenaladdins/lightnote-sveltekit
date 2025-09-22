@@ -105,9 +105,9 @@ n th<svelte:head>
 	.section {
 		margin-bottom: 2rem;
 		padding: 1.5rem;
-		border: 1px solid #e0e0e0;
+		border: 1px solid var(--border);
 		border-radius: 8px;
-		background: #fafafa;
+		background: var(--panel);
 	}
 
 	.actions {
@@ -125,13 +125,13 @@ n th<svelte:head>
 	}
 
 	.btn-primary {
-		background: #007acc;
-		color: white;
+		background: var(--accent);
+		color: var(--text);
 	}
 
 	.btn-secondary {
-		background: #6c757d;
-		color: white;
+		background: var(--muted);
+		color: var(--text);
 	}
 
 	.btn:hover {
@@ -141,13 +141,13 @@ n th<svelte:head>
 	.card {
 		margin: 1rem 0;
 		padding: 1rem;
-		background: white;
-		border: 1px solid #ddd;
+		background: var(--panel);
+		border: 1px solid var(--border);
 		border-radius: 4px;
 	}
 
 	pre {
-		background: #f5f5f5;
+		background: var(--bg-secondary);
 		padding: 1rem;
 		border-radius: 4px;
 		overflow-x: auto;
@@ -158,12 +158,12 @@ n th<svelte:head>
 	.data-summary {
 		margin: 1rem 0;
 		padding: 1rem;
-		background: white;
+		background: var(--panel);
 		border-radius: 4px;
 	}
 
 	code {
-		background: #f0f0f0;
+		background: var(--bg-secondary);
 		padding: 0.2rem 0.4rem;
 		border-radius: 3px;
 		font-family: monospace;

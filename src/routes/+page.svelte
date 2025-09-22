@@ -729,62 +729,6 @@
 		modalEditMode = false;
 	}
 
-	function exportJson() {
-		const data = $entries;
-		download(JSON.stringify(data, null, 2), 'lightnote-export.json', 'application/json');
-	}
-
-	function exportCsv() {
-		const items = [...$entries].sort((a, b) => a.created - b.created);
-		const esc = (s: string) => '"' + String(s).replace(/"/g, '""') + '"';
-		const rows = [['id', 'created_iso', 'updated_iso', 'prompt', 'text', 'tags']].concat(
-			items.map((it) => [
-				it.id,
-				new Date(it.created).toISOString(),
-				it.updated ? new Date(it.updated).toISOString() : '',
-				it.prompt || '',
-				it.text.replace(/\n/g, '\\n'),
-				(it.tags || []).join(' ')
-			])
-		);
-		const csv = rows.map((r) => r.map(esc).join(',')).join('\n');
-		download(csv, 'lightnote-export.csv', 'text/csv');
-	}
-
-	function importJson(event: Event) {
-		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file) {
-			status('Choose a JSON file first.', true);
-			return;
-		}
-
-		const reader = new FileReader();
-		reader.onload = (e) => {
-			try {
-				const data = JSON.parse(String(e.target?.result));
-				if (!Array.isArray(data)) throw new Error('Invalid JSON format');
-				const existing = $entries;
-				const ids = new Set(existing.map((x) => x.id));
-				const merged = existing.concat(data.filter((x) => x && x.id && !ids.has(x.id)));
-				saveEntries(merged);
-				status('Import complete.');
-			} catch (err) {
-				status('Import failed: ' + (err as Error).message, true);
-			}
-		};
-		reader.readAsText(file);
-	}
-
-	function download(content: string, filename: string, type: string) {
-		const blob = new Blob([content], { type });
-		const a = document.createElement('a');
-		a.href = URL.createObjectURL(blob);
-		a.download = filename;
-		a.click();
-		setTimeout(() => URL.revokeObjectURL(a.href), 250);
-	}
-
 	function status(msg: string, isError = false) {
 		saveStatus = msg;
 		setTimeout(() => {
@@ -804,6 +748,48 @@
 		return '·';
 	}
 
+	function truncateText(
+		text: string,
+		maxLength: number = 200
+	): { text: string; isTruncated: boolean; showReadMore: boolean } {
+		if (text.length <= maxLength) return { text, isTruncated: false, showReadMore: false };
+
+		// Find the last sentence ending before maxLength
+		const truncated = text.substring(0, maxLength);
+		const lastSentenceEnd = Math.max(
+			truncated.lastIndexOf('.'),
+			truncated.lastIndexOf('!'),
+			truncated.lastIndexOf('?')
+		);
+
+		// If we found a sentence ending, truncate there
+		if (lastSentenceEnd > maxLength * 0.5) {
+			const truncatedText = text.substring(0, lastSentenceEnd + 1);
+			return {
+				text: truncatedText + ' <span class="ellipsis">...</span>',
+				isTruncated: true,
+				showReadMore: true
+			};
+		}
+
+		// Otherwise, truncate at word boundary
+		const lastSpace = truncated.lastIndexOf(' ');
+		if (lastSpace > maxLength * 0.7) {
+			return {
+				text: text.substring(0, lastSpace) + ' <span class="ellipsis">...</span>',
+				isTruncated: true,
+				showReadMore: true
+			};
+		}
+
+		// Fallback to character truncation
+		return {
+			text: truncated + ' <span class="ellipsis">...</span>',
+			isTruncated: true,
+			showReadMore: true
+		};
+	}
+
 	// Handle keyboard shortcuts
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -814,68 +800,32 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div class="grid">
-	<section class="card">
-		<div class="subtle">Prompt</div>
-		<div class="prompt">{currentPrompt}</div>
-		<div class="row">
-			<input
-				bind:value={customPrompt}
-				type="text"
-				placeholder="Edit this prompt for today (optional)"
-			/>
-		</div>
-		<div class="row">
-			<textarea
-				id="entry"
-				bind:value={entryText}
-				placeholder="Type freely. Use #tags anywhere."
-				on:input={(e) => autoExpand(e.currentTarget)}
-			></textarea>
-		</div>
-		<div class="row">
-			<button on:click={saveEntry}>Save Entry</button>
-			<button class="secondary" on:click={clearEntry}>Clear</button>
-			<button class="secondary" on:click={pickPrompt}>New Prompt</button>
-			<div class="spacer"></div>
-			<small id="saveStatus" role="status" aria-live="polite">{saveStatus}</small>
-		</div>
-	</section>
-
-	<aside class="card">
-		<div class="subtle">Filters</div>
-		<div class="row">
-			<input bind:value={searchQuery} type="text" placeholder="Search text or #tag" />
-		</div>
-		<div class="row">
-			<input bind:value={fromDate} type="date" />
-			<input bind:value={toDate} type="date" />
-		</div>
-		<div class="row">
-			<button class="secondary" on:click={() => {}}>Apply</button>
-			<button
-				class="secondary"
-				on:click={() => {
-					searchQuery = '';
-					fromDate = '';
-					toDate = '';
-				}}>Reset</button
-			>
-		</div>
-
-		<hr style="border-color: #23232a; margin: 14px 0" />
-
-		<div class="subtle">Data</div>
-		<div class="row">
-			<button class="secondary" on:click={exportJson}>Export JSON</button>
-			<button class="secondary" on:click={exportCsv}>Export CSV</button>
-		</div>
-		<div class="row">
-			<input type="file" on:change={importJson} accept=".json" />
-			<button class="secondary">Import</button>
-		</div>
-	</aside>
-</div>
+<section class="card">
+	<div class="subtle">Prompt</div>
+	<div class="prompt">{currentPrompt}</div>
+	<div class="row">
+		<input
+			bind:value={customPrompt}
+			type="text"
+			placeholder="Edit this prompt for today (optional)"
+		/>
+	</div>
+	<div class="row">
+		<textarea
+			id="entry"
+			bind:value={entryText}
+			placeholder="Type freely. Use #tags anywhere."
+			on:input={(e) => autoExpand(e.currentTarget)}
+		></textarea>
+	</div>
+	<div class="row">
+		<button on:click={saveEntry}>Save Entry</button>
+		<button class="secondary" on:click={clearEntry}>Clear</button>
+		<button class="secondary" on:click={pickPrompt}>New Prompt</button>
+		<div class="spacer"></div>
+		<small id="saveStatus" role="status" aria-live="polite">{saveStatus}</small>
+	</div>
+</section>
 
 <section class="card" style="margin-top: 16px">
 	<div class="flex">
@@ -897,6 +847,58 @@
 		>
 			<span class="danger">Delete all</span>
 		</button>
+	</div>
+
+	<!-- Filters -->
+	<div class="subtle" style="margin: 24px 0 16px 0;">Filters</div>
+	<div class="inline-filters">
+		<input
+			bind:value={searchQuery}
+			type="text"
+			placeholder="Search text or #tag"
+			class="search-input"
+		/>
+		<div class="date-row">
+			<div
+				class="date-section"
+				role="button"
+				tabindex="0"
+				on:click={(e) => {
+					// Only trigger if clicking on the container itself, not the inputs
+					if (e.target === e.currentTarget) {
+						const firstDateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+						if (firstDateInput) {
+							firstDateInput.focus();
+							firstDateInput.showPicker();
+						}
+					}
+				}}
+				on:keydown={(e) => {
+					if (e.key === 'Enter') {
+						const firstDateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+						if (firstDateInput) {
+							firstDateInput.focus();
+							firstDateInput.showPicker();
+						}
+					}
+				}}
+			>
+				<input bind:value={fromDate} type="date" class="date-input" />
+				<span class="date-separator">–</span>
+				<input bind:value={toDate} type="date" class="date-input" />
+			</div>
+			<div class="filter-buttons">
+				<button class="secondary" on:click={() => {}}>Apply</button>
+				<button
+					class="secondary"
+					on:click={() => {
+						searchQuery = '';
+						fromDate = '';
+						toDate = '';
+					}}>Reset</button
+				>
+			</div>
+		</div>
 	</div>
 	<div class="list">
 		{#each filteredEntries.filter((entry) => entry && entry.id && entry.text) as entry}
@@ -922,14 +924,22 @@
 						>
 					{/if}
 				</h4>
-				<div class="subtle">Prompt: {entry.prompt || '—'}</div>
-				<p style="white-space: pre-wrap; margin: 10px 0 0 0">{entry.text}</p>
-				<div class="tags">
+				<div class="subtle" style="margin-bottom: 8px">Prompt: {entry.prompt || '—'}</div>
+				<p style="white-space: pre-wrap; margin: 0 0 8px 0; line-height: 1.5">
+					{@html truncateText(entry.text).text}
+				</p>
+				{#if truncateText(entry.text).showReadMore}
+					<div class="read-more">Read more</div>
+				{/if}
+				<div class="tags" style="margin: 8px 0">
 					{#each entry.tags || [] as tag}
 						<span class="tag">#{tag}</span>
 					{/each}
 				</div>
-				<div class="flex" style="margin-top: 8px">
+				<div
+					class="flex"
+					style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border)"
+				>
 					<button class="secondary" on:click|stopPropagation={() => openEntryModalForEdit(entry)}
 						>Edit</button
 					>
@@ -976,3 +986,124 @@
 	editMode={modalEditMode}
 	on:close={closeEntryModal}
 />
+
+<style>
+	.inline-filters {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin-bottom: 20px;
+	}
+
+	.search-input {
+		width: 100%;
+		max-width: 500px;
+	}
+
+	.date-row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+
+	.date-section {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px;
+		border-radius: 4px;
+		cursor: pointer;
+	}
+
+	.date-input {
+		width: 160px;
+	}
+
+	.date-separator {
+		color: var(--muted);
+		font-weight: bold;
+		margin: 0 4px;
+		pointer-events: none;
+	}
+
+	.filter-buttons {
+		display: flex;
+		gap: 8px;
+	}
+
+	.read-more {
+		color: var(--muted);
+		font-style: normal;
+		font-weight: normal;
+		font-size: 13px;
+		margin-top: 4px;
+		text-align: left;
+	}
+
+	.ellipsis {
+		color: var(--muted) !important;
+		font-size: inherit;
+	}
+
+	@media (max-width: 768px) {
+		.inline-filters {
+			width: 100%;
+			box-sizing: border-box;
+		}
+
+		.search-input {
+			width: 100%;
+			max-width: none;
+			box-sizing: border-box;
+		}
+
+		.date-row {
+			justify-content: center;
+			gap: 8px;
+		}
+
+		.date-section {
+			justify-content: center;
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+
+		.date-input {
+			width: 130px;
+			flex-shrink: 0;
+		}
+
+		.filter-buttons {
+			justify-content: center;
+		}
+	}
+
+	@media (max-width: 400px) {
+		.date-row {
+			flex-direction: column;
+			align-items: center;
+			gap: 12px;
+		}
+
+		.date-section {
+			flex-direction: column;
+			align-items: center;
+			gap: 8px;
+		}
+
+		.date-input {
+			width: 100%;
+			max-width: 200px;
+		}
+
+		.date-separator {
+			display: none;
+		}
+
+		.filter-buttons {
+			width: 100%;
+			justify-content: center;
+		}
+	}
+</style>

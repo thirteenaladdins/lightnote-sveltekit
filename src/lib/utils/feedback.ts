@@ -13,6 +13,11 @@ export const feedbackStore = writable<SummaryFeedback[]>([]);
  * Load feedback from localStorage
  */
 export function loadFeedback(): SummaryFeedback[] {
+  // Check if we're in a browser environment
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+    return [];
+  }
+  
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -30,6 +35,12 @@ export function loadFeedback(): SummaryFeedback[] {
  * Save feedback to localStorage
  */
 export function saveFeedback(feedback: SummaryFeedback[]): void {
+  // Check if we're in a browser environment
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+    console.warn('localStorage not available, skipping save');
+    return;
+  }
+  
   try {
     console.log('💾 [Feedback] saveFeedback called', { 
       feedbackCount: feedback.length,

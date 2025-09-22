@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { addSentimentToEntries } from '$lib/stores/entries';
+	import { addSentimentToEntries, entries, saveEntries } from '$lib/stores/entries';
 	import {
 		getLLMConfig,
 		setLLMConfig,
@@ -15,8 +15,10 @@
 	let showReadme = false;
 	let showLlmSettings = false;
 	let showDataManagement = false;
+	let showImportExport = false;
 	let sentimentStatus = '';
 	let llmStatus = '';
+	let importExportStatus = '';
 
 	onMount(() => {
 		// Load any existing configuration from localStorage for migration
@@ -156,6 +158,70 @@ DATA & PRIVACY
 			}, 5000);
 		}
 	}
+
+	function exportJson() {
+		const data = $entries;
+		download(JSON.stringify(data, null, 2), 'lightnote-export.json', 'application/json');
+		importExportStatus = 'JSON exported successfully!';
+		setTimeout(() => {
+			importExportStatus = '';
+		}, 3000);
+	}
+
+	function exportCsv() {
+		const items = [...$entries].sort((a, b) => a.created - b.created);
+		const esc = (s: string) => '"' + String(s).replace(/"/g, '""') + '"';
+		const rows = [['id', 'created_iso', 'updated_iso', 'prompt', 'text', 'tags']].concat(
+			items.map((it) => [
+				it.id,
+				new Date(it.created).toISOString(),
+				it.updated ? new Date(it.updated).toISOString() : '',
+				it.prompt || '',
+				it.text.replace(/\n/g, '\\n'),
+				(it.tags || []).join(' ')
+			])
+		);
+		const csv = rows.map((r) => r.map(esc).join(',')).join('\n');
+		download(csv, 'lightnote-export.csv', 'text/csv');
+		importExportStatus = 'CSV exported successfully!';
+		setTimeout(() => {
+			importExportStatus = '';
+		}, 3000);
+	}
+
+	function importJson(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) {
+			importExportStatus = 'Choose a JSON file first.';
+			setTimeout(() => {
+				importExportStatus = '';
+			}, 3000);
+			return;
+		}
+
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			try {
+				const data = JSON.parse(String(e.target?.result));
+				if (!Array.isArray(data)) throw new Error('Invalid JSON format');
+				const existing = $entries;
+				const ids = new Set(existing.map((x) => x.id));
+				const merged = existing.concat(data.filter((x) => x && x.id && !ids.has(x.id)));
+				saveEntries(merged);
+				importExportStatus = 'Import complete!';
+				setTimeout(() => {
+					importExportStatus = '';
+				}, 3000);
+			} catch (err) {
+				importExportStatus = 'Import failed: ' + (err as Error).message;
+				setTimeout(() => {
+					importExportStatus = '';
+				}, 5000);
+			}
+		};
+		reader.readAsText(file);
+	}
 </script>
 
 <details class="card readme" bind:open={showReadme}>
@@ -233,5 +299,40 @@ DATA & PRIVACY
 				</div>
 			{/if}
 		</div>
+	</div>
+</details>
+
+<details class="card import-export" bind:open={showImportExport}>
+	<summary><b>Import Existing Entries</b></summary>
+	<div class="row" style="margin-top: 10px; flex-direction: column; gap: 8px">
+		<div>
+			<h4>Export Data</h4>
+			<p class="smallnote">
+				Export your entries to backup files. Choose JSON for full data or CSV for spreadsheet
+				compatibility.
+			</p>
+			<div class="flex" style="gap: 8px; margin-bottom: 16px">
+				<button class="secondary" on:click={exportJson}>Export JSON</button>
+				<button class="secondary" on:click={exportCsv}>Export CSV</button>
+			</div>
+		</div>
+
+		<div>
+			<h4>Import Data</h4>
+			<p class="smallnote">
+				Import entries from a previous export. Only JSON files are supported. Duplicate entries will
+				be skipped.
+			</p>
+			<div class="flex" style="gap: 8px; align-items: center">
+				<input type="file" on:change={importJson} accept=".json" />
+				<button class="secondary">Import</button>
+			</div>
+		</div>
+
+		{#if importExportStatus}
+			<div class="smallnote" style="margin-top: 8px; color: var(--accent);">
+				{importExportStatus}
+			</div>
+		{/if}
 	</div>
 </details>

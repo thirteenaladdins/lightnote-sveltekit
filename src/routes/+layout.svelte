@@ -8,9 +8,11 @@
 	let streak = 0;
 	let editBadge = false;
 	let mobileMenuOpen = false;
+	let theme: 'light' | 'dark' = 'dark';
 
 	onMount(() => {
 		updateStreak();
+		initTheme();
 
 		// Listen for streak update events
 		const handleStreakUpdate = () => updateStreak();
@@ -76,7 +78,6 @@
 			// No entry today, streak is 0
 			currentStreak = 0;
 		}
-
 		streak = currentStreak;
 	}
 
@@ -98,6 +99,30 @@
 			closeMobileMenu();
 		}
 	}
+
+	// Theme management
+	function initTheme() {
+		// Check localStorage for saved theme preference
+		const savedTheme = localStorage.getItem('lightnote-theme') as 'light' | 'dark' | null;
+		if (savedTheme && (savedTheme === 'light' || savedTheme === 'dark')) {
+			theme = savedTheme;
+		} else {
+			// Check system preference
+			const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+			theme = prefersLight ? 'light' : 'dark';
+		}
+		applyTheme();
+	}
+
+	function toggleTheme() {
+		theme = theme === 'light' ? 'dark' : 'light';
+		applyTheme();
+		localStorage.setItem('lightnote-theme', theme);
+	}
+
+	function applyTheme() {
+		document.documentElement.setAttribute('data-theme', theme);
+	}
 </script>
 
 <svelte:head>
@@ -107,7 +132,9 @@
 <header>
 	<div class="wrap">
 		<div class="flex">
-			<h1>LightNote</h1>
+			<a href="{base}/" class="logo-link">
+				<h1>LightNote</h1>
+			</a>
 			<div class="spacer"></div>
 			<nav class="nav desktop-nav">
 				<a href="{base}/" class="nav-link" class:active={$page.route.id === '/'}>Entries</a>
@@ -132,7 +159,18 @@
 					style="display: {editBadge ? 'inline-block' : 'none'}"
 					aria-live="polite">Editing…</span
 				>
-				<button id="btnQuickSave" title="Ctrl/Cmd+Enter">Quick Save</button>
+				<button
+					class="theme-toggle"
+					on:click={toggleTheme}
+					title="Toggle theme"
+					aria-label="Toggle theme"
+				>
+					{#if theme === 'light'}
+						🌙
+					{:else}
+						☀️
+					{/if}
+				</button>
 				<button
 					class="mobile-menu-toggle"
 					on:click={toggleMobileMenu}
@@ -189,6 +227,17 @@
 				class:active={$page.route.id === '/settings'}
 				on:click={closeMobileMenu}>Settings</a
 			>
+			<button
+				class="mobile-nav-link theme-toggle-mobile"
+				on:click={toggleTheme}
+				style="text-align: left; border: none; background: none;"
+			>
+				{#if theme === 'light'}
+					🌙 Switch to Dark Mode
+				{:else}
+					☀️ Switch to Light Mode
+				{/if}
+			</button>
 		</nav>
 	{/if}
 </header>
@@ -198,5 +247,54 @@
 </main>
 
 <style>
-	/* Additional layout-specific styles can go here */
+	/* Logo link styling */
+	.logo-link {
+		text-decoration: none;
+		color: inherit;
+		display: flex;
+		align-items: center;
+	}
+
+	.logo-link:hover {
+		opacity: 0.8;
+	}
+
+	.logo-link h1 {
+		margin: 0;
+		font-size: inherit;
+		font-weight: inherit;
+	}
+
+	/* Theme toggle button */
+	.theme-toggle {
+		background: transparent;
+		border: 1px solid var(--border);
+		color: var(--text);
+		padding: 8px 12px;
+		border-radius: 8px;
+		font-size: 16px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		min-height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.theme-toggle:hover {
+		background: rgba(255, 255, 255, 0.1);
+		border-color: var(--accent);
+	}
+
+	.theme-toggle-mobile {
+		background: none;
+		border: none;
+		color: var(--text);
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.theme-toggle-mobile:hover {
+		background: rgba(255, 255, 255, 0.05);
+	}
 </style>
