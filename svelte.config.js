@@ -16,10 +16,11 @@ const config = {
 			strict: true
 		}),
 		paths: {
-			base: '',
+			base: ''
 		},
 		prerender: {
-			handleHttpError: 'warn'
+			handleHttpError: 'warn',
+			handleUnseenRoutes: 'warn'
 		}
 	}
 };

@@ -1,47 +1,25 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import {
-		entries,
-		addEntry,
-		updateEntry,
-		deleteEntry,
-		loadEntries,
-		saveEntries
-	} from '$lib/stores/entries';
+	import { onMount, onDestroy } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { browser } from '$app/environment';
+	import { page } from '$app/stores';
+	import { entries, loadEntries, saveEntries, deleteEntry } from '$lib/stores/entries';
 	import { getSentiment } from '$lib/utils/sentiment';
-	import { prompts } from '$lib/utils/prompts';
-	import EntryModal from '$lib/components/EntryModal.svelte';
+	import { groupEntriesByDay } from '$lib/utils/entries-grouping';
+	import EntryListItem from '$lib/components/EntryListItem.svelte';
 	import { getFeedbackForEntry } from '$lib/utils/feedback';
 	import type { Entry } from '$lib/stores/entries';
 	import '$lib/utils/quick-debug.js';
 
-	let customPrompt = '';
-	let entryText = '';
-	let saveStatus = '';
-	let editingId: string | null = null;
 	let searchQuery = '';
-	let fromDate = '';
-	let toDate = '';
-	let currentPrompt = '';
-	let selectedEntry: Entry | null = null;
-	let isModalOpen = false;
-	let modalEditMode = false;
+	let saveStatus = '';
+	let scrollPosition = 0;
+	let entriesContainer: HTMLElement;
 
-	// Filtered entries based on search and date filters, sorted by most recent first
+	// Filtered entries based on search, sorted by most recent first
 	$: filteredEntries = $entries
 		.filter((entry) => {
 			const query = searchQuery.toLowerCase();
-			const from = fromDate ? new Date(fromDate) : null;
-			const to = toDate ? new Date(toDate) : null;
-
-			// Date filtering
-			const entryDate = new Date(entry.created);
-			if (from && entryDate < from) return false;
-			if (to) {
-				const endDate = new Date(to);
-				endDate.setDate(endDate.getDate() + 1);
-				if (entryDate >= endDate) return false;
-			}
 
 			// Text/tag filtering
 			if (!query) return true;
@@ -51,9 +29,44 @@
 		})
 		.sort((a, b) => b.created - a.created);
 
+	// Group filtered entries by day
+	$: groupedEntries = groupEntriesByDay(filteredEntries);
+
+	// Track if scroll has been restored to prevent multiple restorations
+	let scrollRestored = false;
+
 	onMount(() => {
 		loadEntries();
-		pickPrompt();
+
+		// Restore scroll position from sessionStorage on initial load
+		if (browser) {
+			const storedPosition = sessionStorage.getItem('entries-scroll-position');
+			if (storedPosition) {
+				scrollPosition = parseInt(storedPosition, 10);
+				// Wait for the component to be fully rendered using multiple strategies
+				const restoreScroll = () => {
+					if (entriesContainer && scrollPosition > 0) {
+						// Temporarily disable smooth scrolling
+						const originalScrollBehavior = entriesContainer.style.scrollBehavior;
+						entriesContainer.style.scrollBehavior = 'auto';
+
+						entriesContainer.scrollTop = scrollPosition;
+
+						// Restore smooth scrolling after a brief delay
+						setTimeout(() => {
+							if (entriesContainer) {
+								entriesContainer.style.scrollBehavior = originalScrollBehavior;
+							}
+						}, 100);
+					}
+				};
+
+				// Try multiple times to ensure DOM is ready
+				requestAnimationFrame(() => {
+					requestAnimationFrame(restoreScroll);
+				});
+			}
+		}
 
 		// Listen for storage errors
 		const handleStorageError = (event: CustomEvent) => {
@@ -566,144 +579,84 @@
 		};
 	});
 
-	function pickPrompt() {
-		const idx = Math.floor(Math.random() * prompts.length);
-		currentPrompt = prompts[idx];
-		customPrompt = '';
-	}
-
-	function autoExpand(node: HTMLTextAreaElement) {
-		node.style.height = 'auto';
-		const newHeight = node.scrollHeight;
-		const max = parseInt(window.getComputedStyle(node).maxHeight);
-		if (newHeight > max) {
-			node.style.height = max + 'px';
-		} else {
-			node.style.height = newHeight + 'px';
+	onDestroy(() => {
+		if (browser && entriesContainer && scrollListenerAdded) {
+			entriesContainer.removeEventListener('scroll', saveScrollPosition);
+			scrollListenerAdded = false;
 		}
-	}
+	});
 
-	function parseTags(text: string): string[] {
-		const set = new Set<string>();
-		text.replace(/(^|\s)#([a-zA-Z0-9_\-]+)/g, (_, s, tag) => {
-			set.add(tag.toLowerCase());
-			return _;
-		});
-		return Array.from(set);
-	}
-
-	async function saveEntry() {
-		const prompt = (customPrompt.trim() || currentPrompt || '').trim();
-		const text = entryText.trim();
-
-		if (!text) {
-			status('Nothing to save.', true);
-			return;
-		}
-
-		try {
-			const { compound, label } = getSentiment(text);
-			const tags = parseTags(text);
-
-			if (editingId) {
-				// Update existing entry
-				const entry = $entries.find((e) => e.id === editingId);
-				if (entry) {
-					updateEntry(editingId, {
-						...entry,
-						text,
-						prompt,
-						tags,
-						compound,
-						updated: Date.now()
-					});
-					status('Updated entry.');
-					endEditing();
+	// Save scroll position on scroll
+	function saveScrollPosition() {
+		if (browser && entriesContainer) {
+			scrollPosition = entriesContainer.scrollTop;
+			try {
+				if (scrollPosition > 0) {
+					sessionStorage.setItem('entries-scroll-position', scrollPosition.toString());
 				} else {
-					// Fallback to creating new entry
-					addNewEntry(prompt, text, tags, compound);
-					status('Saved (previous entry not found).');
+					// Clear stored position when at top
+					sessionStorage.removeItem('entries-scroll-position');
 				}
-			} else {
-				// Create new entry
-				addNewEntry(prompt, text, tags, compound);
-				status('Saved.');
+			} catch (error) {
+				console.error('Failed to save scroll position:', error);
 			}
-
-			entryText = '';
-			customPrompt = '';
-			autoExpand(document.getElementById('entry') as HTMLTextAreaElement);
-
-			// Update streak after saving entry
-			window.dispatchEvent(new CustomEvent('updateStreak'));
-		} catch (error) {
-			console.error('Error saving entry:', error);
-			status('Failed to save entry. Please try again.', true);
 		}
 	}
 
-	function addNewEntry(prompt: string, text: string, tags: string[], compound: number) {
-		const id =
-			typeof crypto !== 'undefined' && crypto.randomUUID
-				? crypto.randomUUID()
-				: String(Date.now()) + Math.random().toString(36).slice(2);
-		const created = Date.now();
-		const sentiment = getSentiment(text);
-		const entry = {
-			id,
-			created,
-			prompt,
-			text,
-			tags,
-			compound,
-			meta: {
-				sent: {
-					compound: sentiment.compound,
-					pos: sentiment.pos,
-					neu: sentiment.neu,
-					neg: sentiment.neg,
-					label: sentiment.label
-				}
-			}
-		};
-		addEntry(entry);
+	// Track if scroll listener has been added
+	let scrollListenerAdded = false;
+
+	// Add scroll event listener when container becomes available
+	$: if (browser && entriesContainer && !scrollListenerAdded) {
+		entriesContainer.addEventListener('scroll', saveScrollPosition);
+		scrollListenerAdded = true;
 	}
 
-	function clearEntry() {
-		entryText = '';
-		customPrompt = '';
-		autoExpand(document.getElementById('entry') as HTMLTextAreaElement);
-		if (editingId) {
-			endEditing();
-			status('Edit canceled.');
-		} else {
-			status('Cleared.');
+	// Function to restore scroll position
+	function restoreScrollPosition() {
+		if (browser && entriesContainer) {
+			const storedPosition = sessionStorage.getItem('entries-scroll-position');
+			if (storedPosition) {
+				const position = parseInt(storedPosition, 10);
+				if (position > 0) {
+					// Temporarily disable smooth scrolling
+					const originalScrollBehavior = entriesContainer.style.scrollBehavior;
+					entriesContainer.style.scrollBehavior = 'auto';
+
+					// Set scroll position immediately
+					entriesContainer.scrollTop = position;
+
+					// Restore smooth scrolling after a brief delay
+					setTimeout(() => {
+						if (entriesContainer) {
+							entriesContainer.style.scrollBehavior = originalScrollBehavior;
+						}
+					}, 100);
+
+					// Verify the scroll position was actually set
+					if (Math.abs(entriesContainer.scrollTop - position) > 5) {
+						// Try again after a short delay
+						setTimeout(() => {
+							if (entriesContainer) {
+								entriesContainer.scrollTop = position;
+							}
+						}, 50);
+					}
+				}
+			}
 		}
 	}
 
-	function editEntry(entry: any) {
-		customPrompt = entry.prompt || '';
-		entryText = entry.text;
-		editingId = entry.id || '';
-		document.getElementById('entry')?.classList.add('editing');
-		document.getElementById('editBadge')?.style.setProperty('display', 'inline-block');
-		autoExpand(document.getElementById('entry') as HTMLTextAreaElement);
-		window.scrollTo({ top: 0, behavior: 'smooth' });
-		status('Editing existing entry. Click Save to update, Clear to cancel.');
+	// Restore scroll position when returning to the page (only if not already restored)
+	$: if (browser && $page.url.pathname === '/' && entriesContainer && !scrollRestored) {
+		// Restore immediately to prevent visible scrolling
+		restoreScrollPosition();
+		scrollRestored = true;
 	}
 
-	function endEditing() {
-		editingId = null;
-		document.getElementById('editBadge')?.style.setProperty('display', 'none');
-		document.getElementById('entry')?.classList.remove('editing');
-	}
-
-	function deleteEntryById(id: string) {
+	function deleteEntryById(entry: Entry) {
 		if (confirm('Delete this entry?')) {
-			deleteEntry(id);
-			if (editingId === id) {
-				endEditing();
-			}
+			deleteEntry(entry.id);
 			status('Entry deleted.');
 
 			// Update streak after deleting entry
@@ -712,21 +665,12 @@
 	}
 
 	function openEntryModal(entry: Entry) {
-		selectedEntry = entry;
-		isModalOpen = true;
-		modalEditMode = false;
-	}
-
-	function openEntryModalForEdit(entry: Entry) {
-		selectedEntry = entry;
-		isModalOpen = true;
-		modalEditMode = true;
-	}
-
-	function closeEntryModal() {
-		isModalOpen = false;
-		selectedEntry = null;
-		modalEditMode = false;
+		// Save current scroll position before navigating
+		saveScrollPosition();
+		// Reset scroll restoration flag so it can be restored when coming back
+		scrollRestored = false;
+		// Navigate immediately
+		goto(`/entry/${entry.id}`);
 	}
 
 	function status(msg: string, isError = false) {
@@ -735,375 +679,255 @@
 			saveStatus = '';
 		}, 4000);
 	}
-
-	function getMoodClass(compound: number): string {
-		if (compound >= 0.05) return 'good';
-		if (compound <= -0.05) return 'danger';
-		return 'neutral';
-	}
-
-	function getMoodArrow(compound: number): string {
-		if (compound >= 0.05) return '↑';
-		if (compound <= -0.05) return '↓';
-		return '·';
-	}
-
-	function truncateText(
-		text: string,
-		maxLength: number = 200
-	): { text: string; isTruncated: boolean; showReadMore: boolean } {
-		if (text.length <= maxLength) return { text, isTruncated: false, showReadMore: false };
-
-		// Find the last sentence ending before maxLength
-		const truncated = text.substring(0, maxLength);
-		const lastSentenceEnd = Math.max(
-			truncated.lastIndexOf('.'),
-			truncated.lastIndexOf('!'),
-			truncated.lastIndexOf('?')
-		);
-
-		// If we found a sentence ending, truncate there
-		if (lastSentenceEnd > maxLength * 0.5) {
-			const truncatedText = text.substring(0, lastSentenceEnd + 1);
-			return {
-				text: truncatedText + ' <span class="ellipsis">...</span>',
-				isTruncated: true,
-				showReadMore: true
-			};
-		}
-
-		// Otherwise, truncate at word boundary
-		const lastSpace = truncated.lastIndexOf(' ');
-		if (lastSpace > maxLength * 0.7) {
-			return {
-				text: text.substring(0, lastSpace) + ' <span class="ellipsis">...</span>',
-				isTruncated: true,
-				showReadMore: true
-			};
-		}
-
-		// Fallback to character truncation
-		return {
-			text: truncated + ' <span class="ellipsis">...</span>',
-			isTruncated: true,
-			showReadMore: true
-		};
-	}
-
-	// Handle keyboard shortcuts
-	function handleKeydown(event: KeyboardEvent) {
-		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-			saveEntry();
-		}
-	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:head>
+	<title>Home - Lightnote</title>
+</svelte:head>
 
-<section class="card">
-	<div class="subtle">Prompt</div>
-	<div class="prompt">{currentPrompt}</div>
-	<div class="row">
-		<input
-			bind:value={customPrompt}
-			type="text"
-			placeholder="Edit this prompt for today (optional)"
-		/>
-	</div>
-	<div class="row">
-		<textarea
-			id="entry"
-			bind:value={entryText}
-			placeholder="Type freely. Use #tags anywhere."
-			on:input={(e) => autoExpand(e.currentTarget)}
-		></textarea>
-	</div>
-	<div class="row">
-		<button on:click={saveEntry}>Save Entry</button>
-		<button class="secondary" on:click={clearEntry}>Clear</button>
-		<button class="secondary" on:click={pickPrompt}>New Prompt</button>
-		<div class="spacer"></div>
-		<small id="saveStatus" role="status" aria-live="polite">{saveStatus}</small>
-	</div>
-</section>
-
-<section class="card" style="margin-top: 16px">
-	<div class="flex">
-		<div>
-			<div class="subtle">Entries</div>
-			<small class="subtle">{filteredEntries.length} of {$entries.length} shown</small>
+<div class="home-page">
+	<div class="page-header">
+		<h1>Entries</h1>
+		<div class="header-actions">
+			<a href="/entry/new" class="new-entry-button">
+				<span class="button-icon">✍️</span>
+				New Entry
+			</a>
 		</div>
-		<div class="spacer"></div>
-		<button
-			class="secondary"
-			on:click={() => {
-				if (confirm('Delete ALL entries? This cannot be undone.')) {
-					saveEntries([]);
-					endEditing();
-					status('All entries deleted.');
-					window.dispatchEvent(new CustomEvent('updateStreak'));
-				}
-			}}
-		>
-			<span class="danger">Delete all</span>
-		</button>
 	</div>
 
-	<!-- Filters -->
-	<div class="subtle" style="margin: 24px 0 16px 0;">Filters</div>
-	<div class="inline-filters">
+	<!-- Search -->
+	<div class="search-section">
 		<input
 			bind:value={searchQuery}
 			type="text"
 			placeholder="Search text or #tag"
 			class="search-input"
 		/>
-		<div class="date-row">
-			<div
-				class="date-section"
-				role="button"
-				tabindex="0"
-				on:click={(e) => {
-					// Only trigger if clicking on the container itself, not the inputs
-					if (e.target === e.currentTarget) {
-						const firstDateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
-						if (firstDateInput) {
-							firstDateInput.focus();
-							firstDateInput.showPicker();
-						}
-					}
-				}}
-				on:keydown={(e) => {
-					if (e.key === 'Enter') {
-						const firstDateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
-						if (firstDateInput) {
-							firstDateInput.focus();
-							firstDateInput.showPicker();
-						}
-					}
-				}}
-			>
-				<input bind:value={fromDate} type="date" class="date-input" />
-				<span class="date-separator">–</span>
-				<input bind:value={toDate} type="date" class="date-input" />
-			</div>
-			<div class="filter-buttons">
-				<button class="secondary" on:click={() => {}}>Apply</button>
-				<button
-					class="secondary"
-					on:click={() => {
-						searchQuery = '';
-						fromDate = '';
-						toDate = '';
-					}}>Reset</button
-				>
-			</div>
-		</div>
 	</div>
-	<div class="list">
-		{#each filteredEntries.filter((entry) => entry && entry.id && entry.text) as entry}
-			{@const compoundScore =
-				entry.compound !== undefined
-					? entry.compound
-					: (entry.meta?.sent?.compound ?? getSentiment(entry.text).compound)}
-			<div
-				class="entry clickable-entry"
-				on:click={() => openEntryModal(entry)}
-				on:keydown={(e) => e.key === 'Enter' && openEntryModal(entry)}
-				role="button"
-				tabindex="0"
-			>
-				<h4>
-					{entry.created ? new Date(entry.created).toLocaleString() : 'Unknown date'}
-					<span class="{getMoodClass(compoundScore)} mono"
-						>• {getMoodArrow(compoundScore)} mood</span
-					>
-					{#if entry.updated}
-						&middot; <span class="mono subtle"
-							>edited {entry.updated ? new Date(entry.updated).toLocaleString() : 'unknown'}</span
-						>
-					{/if}
-				</h4>
-				<div class="subtle" style="margin-bottom: 8px">Prompt: {entry.prompt || '—'}</div>
-				<p style="white-space: pre-wrap; margin: 0 0 8px 0; line-height: 1.5">
-					{@html truncateText(entry.text).text}
-				</p>
-				{#if truncateText(entry.text).showReadMore}
-					<div class="read-more">Read more</div>
+
+	<!-- Entries List -->
+	<div class="entries-list" bind:this={entriesContainer}>
+		{#if groupedEntries.length === 0}
+			<div class="empty-state">
+				<p>No entries found.</p>
+				{#if filteredEntries.length === 0 && $entries.length > 0}
+					<p class="subtle">Try adjusting your search.</p>
+				{:else if $entries.length === 0}
+					<p class="subtle">Start by creating your first entry.</p>
 				{/if}
-				<div class="tags" style="margin: 8px 0">
-					{#each entry.tags || [] as tag}
-						<span class="tag">#{tag}</span>
-					{/each}
-				</div>
-				<div
-					class="flex"
-					style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border)"
-				>
-					<button class="secondary" on:click|stopPropagation={() => openEntryModalForEdit(entry)}
-						>Edit</button
-					>
-					<button
-						class="secondary destructive"
-						on:click|stopPropagation={() => entry.id && deleteEntryById(entry.id)}>Delete</button
-					>
-					<div class="spacer"></div>
-					{#if entry.id}
-						{@const feedback = getFeedbackForEntry(entry.id)}
-						{#if feedback.length > 0}
-							{@const feedbackEntry = feedback[0]}
-							{@const feedbackCount = Object.values(feedbackEntry.feedback).filter(
-								(f) => f !== undefined
-							).length}
-							{#if feedbackCount > 0}
-								<small class="feedback-indicator" title="{feedbackCount} feedback entries">
-									📝 {feedbackCount}
-								</small>
-							{/if}
-						{/if}
-					{/if}
-					<small class="subtle mono">id: {entry.id?.slice(0, 8) || 'unknown'}</small>
-				</div>
 			</div>
-		{/each}
+		{:else}
+			{#each groupedEntries as group}
+				<div class="day-group">
+					<div class="day-header">
+						<h2>{group.dateLabel}</h2>
+						<span class="day-count"
+							>{group.items.length} {group.items.length === 1 ? 'entry' : 'entries'}</span
+						>
+					</div>
+					<div class="day-entries">
+						{#each group.items as entry}
+							<EntryListItem {entry} onClick={openEntryModal} onDelete={deleteEntryById} />
+						{/each}
+					</div>
+				</div>
+			{/each}
+		{/if}
 	</div>
-</section>
 
-<small class="subtle">
-	<footer>
-		<br />
-		<div class="subtle">
-			Sentiment analysis powered by <strong>sentiment.js</strong>. A lightweight JavaScript library
-			for sentiment analysis in text.
+	{#if saveStatus}
+		<div
+			class="status-message"
+			class:error={saveStatus.includes('Failed') || saveStatus.includes('Error')}
+		>
+			{saveStatus}
 		</div>
-	</footer>
-</small>
-
-<!-- Entry Modal -->
-<EntryModal
-	bind:entry={selectedEntry}
-	bind:isOpen={isModalOpen}
-	editMode={modalEditMode}
-	on:close={closeEntryModal}
-/>
+	{/if}
+</div>
 
 <style>
-	.inline-filters {
+	.home-page {
+		max-width: 1200px;
+		margin: 0 auto;
+		padding: 20px;
+	}
+
+	.page-header {
 		display: flex;
-		flex-direction: column;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 32px;
+		padding-bottom: 16px;
+		border-bottom: 1px solid var(--border);
+		position: relative;
+		z-index: 5;
+	}
+
+	.page-header h1 {
+		margin: 0;
+		font-size: 2rem;
+		font-weight: 600;
+	}
+
+	.header-actions {
+		display: flex;
 		gap: 12px;
-		margin-bottom: 20px;
+	}
+
+	.new-entry-button {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: var(--accent);
+		color: white;
+		padding: 8px 16px;
+		border-radius: 6px;
+		text-decoration: none;
+		font-weight: 500;
+		font-size: 0.9rem;
+		transition: all 0.2s ease;
+		border: none;
+		cursor: pointer;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.new-entry-button:hover {
+		background: var(--accent-dark);
+		transform: translateY(-1px);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	}
+
+	.button-icon {
+		font-size: 1rem;
+	}
+
+	.search-section {
+		margin-bottom: 24px;
 	}
 
 	.search-input {
 		width: 100%;
-		max-width: 500px;
+		padding: 12px 16px;
+		border: 1px solid var(--border);
+		border-radius: 16px;
+		background: var(--panel);
+		color: var(--text);
+		font-size: 16px;
+		transition: border-color 0.2s ease;
+		box-sizing: border-box;
 	}
 
-	.date-row {
+	.search-input:focus {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px var(--accent-alpha);
+	}
+
+	.entries-list {
 		display: flex;
+		flex-direction: column;
+		gap: 32px;
+		max-height: calc(100vh - 200px);
+		overflow-y: auto;
+		scroll-behavior: smooth;
+	}
+
+	.day-group {
+		margin-bottom: 32px;
+	}
+
+	.day-header {
+		display: flex;
+		justify-content: space-between;
 		align-items: center;
-		gap: 12px;
-		flex-wrap: wrap;
+		margin-bottom: 0;
+		padding-bottom: 12px;
+		border-bottom: 1px solid var(--border);
 	}
 
-	.date-section {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px;
-		border-radius: 4px;
-		cursor: pointer;
-	}
-
-	.date-input {
-		width: 160px;
-	}
-
-	.date-separator {
+	.day-count {
 		color: var(--muted);
-		font-weight: bold;
-		margin: 0 4px;
-		pointer-events: none;
+		font-size: 0.9rem;
 	}
 
-	.filter-buttons {
+	.day-entries {
 		display: flex;
-		gap: 8px;
+		flex-direction: column;
 	}
 
-	.read-more {
+	.empty-state {
+		text-align: center;
+		padding: 60px 20px;
 		color: var(--muted);
-		font-style: normal;
-		font-weight: normal;
-		font-size: 13px;
-		margin-top: 4px;
-		text-align: left;
 	}
 
-	.ellipsis {
-		color: var(--muted) !important;
-		font-size: inherit;
+	.empty-state p {
+		margin: 8px 0;
+	}
+
+	.status-message {
+		position: fixed;
+		top: 20px;
+		right: 20px;
+		background: var(--card-bg);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 12px 16px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		z-index: 1000;
+		font-size: 0.9rem;
+	}
+
+	.status-message.error {
+		border-color: var(--danger);
+		background: var(--danger-bg);
+		color: var(--danger);
 	}
 
 	@media (max-width: 768px) {
-		.inline-filters {
+		.home-page {
+			padding: 16px;
+		}
+
+		.page-header {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 16px;
+			position: relative;
+			z-index: 1;
+		}
+
+		.header-actions {
 			width: 100%;
-			box-sizing: border-box;
+			justify-content: flex-end;
+			position: relative;
+			z-index: 2;
+		}
+
+		.new-entry-button {
+			position: relative;
+			z-index: 3;
+			flex-shrink: 0;
 		}
 
 		.search-input {
 			width: 100%;
-			max-width: none;
 			box-sizing: border-box;
 		}
 
-		.date-row {
-			justify-content: center;
-			gap: 8px;
-		}
-
-		.date-section {
-			justify-content: center;
-			flex-wrap: wrap;
-			gap: 6px;
-		}
-
-		.date-input {
-			width: 130px;
-			flex-shrink: 0;
-		}
-
-		.filter-buttons {
-			justify-content: center;
+		.status-message {
+			position: relative;
+			top: auto;
+			right: auto;
+			margin: 16px 0;
 		}
 	}
 
-	@media (max-width: 400px) {
-		.date-row {
-			flex-direction: column;
-			align-items: center;
-			gap: 12px;
-		}
-
-		.date-section {
-			flex-direction: column;
-			align-items: center;
-			gap: 8px;
-		}
-
-		.date-input {
-			width: 100%;
-			max-width: 200px;
-		}
-
-		.date-separator {
-			display: none;
-		}
-
-		.filter-buttons {
-			width: 100%;
-			justify-content: center;
+	@media (max-width: 480px) {
+		.page-header h1 {
+			font-size: 1.5rem;
 		}
 	}
 </style>

@@ -212,6 +212,8 @@ export function initializeQuotePopovers(container: HTMLElement): void {
  * Call this when removing highlighted text from DOM
  */
 export function cleanupQuotePopovers(container: HTMLElement): void {
+  if (!container) return;
+  
   const quoteHighlights = container.querySelectorAll('.quote-highlight');
   
   quoteHighlights.forEach(highlight => {

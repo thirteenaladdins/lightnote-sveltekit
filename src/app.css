@@ -5,13 +5,19 @@
   --muted: #9aa0a6;
   --text: #e8eaed;
   --accent: #8ab4f8;
+  --accent-dark: #6a94d6;
+  --accent-alpha: rgba(138, 180, 248, 0.1);
+  --accent-bg: rgba(138, 180, 248, 0.1);
   --green: #8bc34a;
   --red: #ff6b6b;
+  --danger: #ff6b6b;
+  --danger-bg: rgba(255, 107, 107, 0.1);
   --yellow: #ffd166;
   --border: #2d2d35;
   --bg-secondary: #1a1a1f;
   --text-secondary: #9aa0a6;
   --orange: #ff9800;
+  --card-bg: #1a1a1f;
 }
 
 [data-theme="light"] {
@@ -21,13 +27,19 @@
   --muted: #5f6368;
   --text: #202124;
   --accent: #1a73e8;
+  --accent-dark: #1557b0;
+  --accent-alpha: rgba(26, 115, 232, 0.1);
+  --accent-bg: rgba(26, 115, 232, 0.1);
   --green: #137333;
   --red: #d93025;
+  --danger: #d93025;
+  --danger-bg: rgba(217, 48, 37, 0.1);
   --yellow: #f9ab00;
   --border: #c1c7cd;
   --bg-secondary: #e8eaed;
   --text-secondary: #5f6368;
   --orange: #f29900;
+  --card-bg: #ffffff;
 }
 
 * {
@@ -613,6 +625,11 @@ details.llm-settings summary {
 .nav-link.active {
   background-color: rgba(255, 255, 255, 0.1);
   opacity: 1;
+}
+
+[data-theme="light"] .nav-link:hover,
+[data-theme="light"] .nav-link.active {
+  background-color: rgba(26, 115, 232, 0.1);
 }
 
 /* Mobile navigation improvements */
