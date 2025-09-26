@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { entries, loadEntries } from '$lib/stores/entries';
+	import { entries, loadEntries } from '$lib/stores/entries-supabase';
 	import { generateAnalyticsData, filterEntriesForMonth } from '$lib/utils/analytics';
 	import {
 		generateCalendarGrid,

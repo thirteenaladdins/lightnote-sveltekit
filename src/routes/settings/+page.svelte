@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { addSentimentToEntries, entries, saveEntries } from '$lib/stores/entries';
+	import { addSentimentToEntries, entries, saveEntries } from '$lib/stores/entries-supabase';
+	import { settings } from '$lib/stores/settings';
+	import { auth } from '$lib/stores/auth';
 	import {
 		getLLMConfig,
 		setLLMConfig,
@@ -16,15 +18,56 @@
 	let showLlmSettings = false;
 	let showDataManagement = false;
 	let showImportExport = false;
+	let showUserSettings = false;
 	let sentimentStatus = '';
 	let llmStatus = '';
 	let importExportStatus = '';
+	let userSettingsStatus = '';
+
+	// User settings
+	let theme = 'system';
+	let notifications = true;
+	let autoSave = true;
+	let defaultPrompt = '';
+	let analysisEnabled = true;
 
 	onMount(() => {
 		// Load any existing configuration from localStorage for migration
 		loadLLMConfigFromStorage();
 		loadLlmSettings();
+		loadUserSettings();
 	});
+
+	// Load user settings from store
+	function loadUserSettings() {
+		theme = $settings.theme || 'system';
+		notifications = $settings.notifications ?? true;
+		autoSave = $settings.autoSave ?? true;
+		defaultPrompt = $settings.defaultPrompt || '';
+		analysisEnabled = $settings.analysisEnabled ?? true;
+	}
+
+	// Save user settings
+	async function saveUserSettings() {
+		try {
+			await settings.set('theme', theme);
+			await settings.set('notifications', notifications);
+			await settings.set('autoSave', autoSave);
+			await settings.set('defaultPrompt', defaultPrompt);
+			await settings.set('analysisEnabled', analysisEnabled);
+
+			userSettingsStatus = 'Settings saved successfully!';
+			setTimeout(() => {
+				userSettingsStatus = '';
+			}, 3000);
+		} catch (error) {
+			userSettingsStatus =
+				'Failed to save settings: ' + (error instanceof Error ? error.message : 'Unknown error');
+			setTimeout(() => {
+				userSettingsStatus = '';
+			}, 5000);
+		}
+	}
 
 	function loadLlmSettings() {
 		const config = getLLMConfig();
@@ -224,115 +267,165 @@ DATA & PRIVACY
 	}
 </script>
 
-<details class="card readme" bind:open={showReadme}>
-	<summary><b>README (click to view)</b></summary>
-	<div class="row" style="margin-top: 10px">
-		<div class="smallnote">
-			<p>
-				<b>What it is:</b> LightNote v1 is a lightweight, private, offline journal. Your notes stay in
-				your browser (localStorage) and never touch a server.
-			</p>
-			<p>
-				<b>How to use:</b> Open this file in your browser, write in the big box, hit <i>Save</i>.
-				Use Export for backups. Import restores from a previous export.
-			</p>
-			<p>
-				<b>How to update:</b> Replace this file with a newer version. If you keep using the same browser/profile,
-				your notes remain under the same storage key.
-			</p>
-			<p><button class="secondary" on:click={downloadReadme}>Download README.txt</button></p>
-		</div>
+{#if !$auth.user}
+	<div class="card">
+		<h2>Please Sign In</h2>
+		<p>You need to be signed in to access settings.</p>
+		<a href="/login" class="button">Sign In</a>
 	</div>
-</details>
+{:else}
+	<details class="card user-settings" bind:open={showUserSettings}>
+		<summary><b>User Settings</b></summary>
+		<div class="row" style="margin-top: 10px; flex-direction: column; gap: 12px">
+			<label>
+				Theme
+				<select bind:value={theme}>
+					<option value="system">System</option>
+					<option value="light">Light</option>
+					<option value="dark">Dark</option>
+				</select>
+			</label>
 
-<details class="card llm-settings" bind:open={showLlmSettings}>
-	<summary><b>LLM Settings</b></summary>
-	<div class="row" style="margin-top: 10px; flex-direction: column; gap: 8px">
-		<label>
-			Endpoint URL<br />
-			<input bind:value={llmUrl} placeholder="https://api.together.xyz/v1/chat/completions" />
-		</label>
-		<label>
-			API Token<br />
-			<input bind:value={llmToken} type="password" placeholder="sk-..." />
-		</label>
-		<label>
-			Model<br />
-			<input bind:value={llmModel} placeholder="meta-llama/Meta-Llama-3-8B-Instruct-Turbo" />
-		</label>
-		<label>
-			Timeout (ms)<br />
-			<input bind:value={llmTimeout} type="number" min="1000" step="1000" placeholder="60000" />
-		</label>
-		<div class="flex" style="margin-top: 6px; gap: 8px">
-			<button class="secondary" on:click={saveLlmSettings}>Save</button>
-			<button class="secondary" on:click={testLlmConnection}>Test Connection</button>
-			<button class="secondary" on:click={clearLlmSettings}>Clear</button>
-		</div>
-		{#if llmStatus}
-			<div class="smallnote" style="margin-top: 8px; color: var(--accent);">
-				{llmStatus}
-			</div>
-		{/if}
-		<small class="subtle"
-			>Stored securely in memory only. Configure these settings to enable AI insights. Settings are
-			not persisted to localStorage for security.</small
-		>
-	</div>
-</details>
+			<label>
+				<input type="checkbox" bind:checked={notifications} />
+				Enable notifications
+			</label>
 
-<details class="card data-management" bind:open={showDataManagement}>
-	<summary><b>Data Management</b></summary>
-	<div class="row" style="margin-top: 10px; flex-direction: column; gap: 8px">
-		<div>
-			<h4>Sentiment Analysis</h4>
-			<p class="smallnote">
-				Calculate sentiment data for existing entries that don't have it yet. This will add mood
-				analysis to older entries.
-			</p>
-			<button class="secondary" on:click={calculateSentimentForExistingEntries}>
-				Calculate Sentiment for Existing Entries
-			</button>
-			{#if sentimentStatus}
+			<label>
+				<input type="checkbox" bind:checked={autoSave} />
+				Auto-save entries
+			</label>
+
+			<label>
+				<input type="checkbox" bind:checked={analysisEnabled} />
+				Enable AI analysis
+			</label>
+
+			<label>
+				Default Prompt
+				<input bind:value={defaultPrompt} placeholder="Enter a default prompt for new entries" />
+			</label>
+
+			<button class="secondary" on:click={saveUserSettings}>Save Settings</button>
+
+			{#if userSettingsStatus}
 				<div class="smallnote" style="margin-top: 8px; color: var(--accent);">
-					{sentimentStatus}
+					{userSettingsStatus}
 				</div>
 			{/if}
 		</div>
-	</div>
-</details>
+	</details>
 
-<details class="card import-export" bind:open={showImportExport}>
-	<summary><b>Import Existing Entries</b></summary>
-	<div class="row" style="margin-top: 10px; flex-direction: column; gap: 8px">
-		<div>
-			<h4>Export Data</h4>
-			<p class="smallnote">
-				Export your entries to backup files. Choose JSON for full data or CSV for spreadsheet
-				compatibility.
-			</p>
-			<div class="flex" style="gap: 8px; margin-bottom: 16px">
-				<button class="secondary" on:click={exportJson}>Export JSON</button>
-				<button class="secondary" on:click={exportCsv}>Export CSV</button>
+	<details class="card readme" bind:open={showReadme}>
+		<summary><b>README (click to view)</b></summary>
+		<div class="row" style="margin-top: 10px">
+			<div class="smallnote">
+				<p>
+					<b>What it is:</b> LightNote v1 is a lightweight, private, offline journal. Your notes stay
+					in your browser (localStorage) and never touch a server.
+				</p>
+				<p>
+					<b>How to use:</b> Open this file in your browser, write in the big box, hit <i>Save</i>.
+					Use Export for backups. Import restores from a previous export.
+				</p>
+				<p>
+					<b>How to update:</b> Replace this file with a newer version. If you keep using the same browser/profile,
+					your notes remain under the same storage key.
+				</p>
+				<p><button class="secondary" on:click={downloadReadme}>Download README.txt</button></p>
 			</div>
 		</div>
+	</details>
 
-		<div>
-			<h4>Import Data</h4>
-			<p class="smallnote">
-				Import entries from a previous export. Only JSON files are supported. Duplicate entries will
-				be skipped.
-			</p>
-			<div class="flex" style="gap: 8px; align-items: center">
-				<input type="file" on:change={importJson} accept=".json" />
-				<button class="secondary">Import</button>
+	<details class="card llm-settings" bind:open={showLlmSettings}>
+		<summary><b>LLM Settings</b></summary>
+		<div class="row" style="margin-top: 10px; flex-direction: column; gap: 8px">
+			<label>
+				Endpoint URL<br />
+				<input bind:value={llmUrl} placeholder="https://api.together.xyz/v1/chat/completions" />
+			</label>
+			<label>
+				API Token<br />
+				<input bind:value={llmToken} type="password" placeholder="sk-..." />
+			</label>
+			<label>
+				Model<br />
+				<input bind:value={llmModel} placeholder="meta-llama/Meta-Llama-3-8B-Instruct-Turbo" />
+			</label>
+			<label>
+				Timeout (ms)<br />
+				<input bind:value={llmTimeout} type="number" min="1000" step="1000" placeholder="60000" />
+			</label>
+			<div class="flex" style="margin-top: 6px; gap: 8px">
+				<button class="secondary" on:click={saveLlmSettings}>Save</button>
+				<button class="secondary" on:click={testLlmConnection}>Test Connection</button>
+				<button class="secondary" on:click={clearLlmSettings}>Clear</button>
+			</div>
+			{#if llmStatus}
+				<div class="smallnote" style="margin-top: 8px; color: var(--accent);">
+					{llmStatus}
+				</div>
+			{/if}
+			<small class="subtle"
+				>Stored securely in memory only. Configure these settings to enable AI insights. Settings
+				are not persisted to localStorage for security.</small
+			>
+		</div>
+	</details>
+
+	<details class="card data-management" bind:open={showDataManagement}>
+		<summary><b>Data Management</b></summary>
+		<div class="row" style="margin-top: 10px; flex-direction: column; gap: 8px">
+			<div>
+				<h4>Sentiment Analysis</h4>
+				<p class="smallnote">
+					Calculate sentiment data for existing entries that don't have it yet. This will add mood
+					analysis to older entries.
+				</p>
+				<button class="secondary" on:click={calculateSentimentForExistingEntries}>
+					Calculate Sentiment for Existing Entries
+				</button>
+				{#if sentimentStatus}
+					<div class="smallnote" style="margin-top: 8px; color: var(--accent);">
+						{sentimentStatus}
+					</div>
+				{/if}
 			</div>
 		</div>
+	</details>
 
-		{#if importExportStatus}
-			<div class="smallnote" style="margin-top: 8px; color: var(--accent);">
-				{importExportStatus}
+	<details class="card import-export" bind:open={showImportExport}>
+		<summary><b>Import Existing Entries</b></summary>
+		<div class="row" style="margin-top: 10px; flex-direction: column; gap: 8px">
+			<div>
+				<h4>Export Data</h4>
+				<p class="smallnote">
+					Export your entries to backup files. Choose JSON for full data or CSV for spreadsheet
+					compatibility.
+				</p>
+				<div class="flex" style="gap: 8px; margin-bottom: 16px">
+					<button class="secondary" on:click={exportJson}>Export JSON</button>
+					<button class="secondary" on:click={exportCsv}>Export CSV</button>
+				</div>
 			</div>
-		{/if}
-	</div>
-</details>
+
+			<div>
+				<h4>Import Data</h4>
+				<p class="smallnote">
+					Import entries from a previous export. Only JSON files are supported. Duplicate entries
+					will be skipped.
+				</p>
+				<div class="flex" style="gap: 8px; align-items: center">
+					<input type="file" on:change={importJson} accept=".json" />
+					<button class="secondary">Import</button>
+				</div>
+			</div>
+
+			{#if importExportStatus}
+				<div class="smallnote" style="margin-top: 8px; color: var(--accent);">
+					{importExportStatus}
+				</div>
+			{/if}
+		</div>
+	</details>
+{/if}

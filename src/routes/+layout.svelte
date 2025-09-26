@@ -2,8 +2,11 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import '../app.css';
 	import '$lib/utils/console-debug.js';
+	import { auth } from '$lib/stores/auth';
+	import { initAuth } from '$lib/stores/auth';
 
 	let streak = 0;
 	let editBadge = false;
@@ -13,6 +16,7 @@
 	onMount(() => {
 		updateStreak();
 		initTheme();
+		initAuth();
 
 		// Listen for streak update events
 		const handleStreakUpdate = () => updateStreak();
@@ -26,6 +30,15 @@
 			document.removeEventListener('keydown', handleKeydown);
 		};
 	});
+
+	async function handleSignOut() {
+		try {
+			await auth.signOut();
+			goto('/login');
+		} catch (error) {
+			console.error('Sign out error:', error);
+		}
+	}
 
 	function ymd(d = new Date()) {
 		// Handle invalid dates
@@ -153,24 +166,36 @@
 			</nav>
 			<div class="spacer"></div>
 			<div class="header-actions">
-				<small class="subtle" style="margin-right: 12px">🔥 {streak} day streak</small>
-				<span
-					class="badge"
-					style="display: {editBadge ? 'inline-block' : 'none'}"
-					aria-live="polite">Editing…</span
-				>
-				<button
-					class="theme-toggle"
-					on:click={toggleTheme}
-					title="Toggle theme"
-					aria-label="Toggle theme"
-				>
-					{#if theme === 'light'}
-						🌙
-					{:else}
-						☀️
-					{/if}
-				</button>
+				{#if $auth.user}
+					<small class="subtle" style="margin-right: 12px">🔥 {streak} day streak</small>
+					<span
+						class="badge"
+						style="display: {editBadge ? 'inline-block' : 'none'}"
+						aria-live="polite">Editing…</span
+					>
+					<button
+						class="theme-toggle"
+						on:click={toggleTheme}
+						title="Toggle theme"
+						aria-label="Toggle theme"
+					>
+						{#if theme === 'light'}
+							🌙
+						{:else}
+							☀️
+						{/if}
+					</button>
+					<button
+						class="sign-out-button"
+						on:click={handleSignOut}
+						title="Sign out"
+						aria-label="Sign out"
+					>
+						Sign Out
+					</button>
+				{:else}
+					<a href="/login" class="sign-in-button">Sign In</a>
+				{/if}
 				<button
 					class="mobile-menu-toggle"
 					on:click={toggleMobileMenu}
@@ -227,22 +252,40 @@
 				class:active={$page.route.id === '/settings'}
 				on:click={closeMobileMenu}>Settings</a
 			>
-			<button
-				class="mobile-nav-link theme-toggle-mobile"
-				on:click={toggleTheme}
-				style="text-align: left; border: none; background: none;"
-			>
-				{#if theme === 'light'}
-					🌙 Switch to Dark Mode
-				{:else}
-					☀️ Switch to Light Mode
-				{/if}
-			</button>
+			{#if $auth.user}
+				<button
+					class="mobile-nav-link theme-toggle-mobile"
+					on:click={toggleTheme}
+					style="text-align: left; border: none; background: none;"
+				>
+					{#if theme === 'light'}
+						🌙 Switch to Dark Mode
+					{:else}
+						☀️ Switch to Light Mode
+					{/if}
+				</button>
+				<button
+					class="mobile-nav-link sign-out-mobile"
+					on:click={handleSignOut}
+					style="text-align: left; border: none; background: none; color: var(--error, #ef4444);"
+				>
+					Sign Out
+				</button>
+			{:else}
+				<a
+					href="/login"
+					class="mobile-nav-link sign-in-mobile"
+					on:click={closeMobileMenu}
+					style="color: var(--accent);"
+				>
+					Sign In
+				</a>
+			{/if}
 		</nav>
 	{/if}
 </header>
 
-<main class="wrap">
+<main class="wrap" class:full-height={$page.route.id === '/entry/new'}>
 	<slot />
 </main>
 
@@ -296,5 +339,57 @@
 
 	.theme-toggle-mobile:hover {
 		background: rgba(255, 255, 255, 0.05);
+	}
+
+	/* Authentication buttons */
+	.sign-in-button {
+		background: var(--accent);
+		color: white;
+		padding: 8px 16px;
+		border-radius: 6px;
+		text-decoration: none;
+		font-size: 14px;
+		font-weight: 500;
+		transition: background-color 0.2s;
+		margin-right: 8px;
+	}
+
+	.sign-in-button:hover {
+		background: var(--accent-hover, var(--accent));
+	}
+
+	.sign-out-button {
+		background: transparent;
+		border: 1px solid var(--border);
+		color: var(--text);
+		padding: 8px 16px;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-right: 8px;
+	}
+
+	.sign-out-button:hover {
+		background: var(--hover-bg, var(--muted-alpha));
+		border-color: var(--error, #ef4444);
+		color: var(--error, #ef4444);
+	}
+
+	.sign-in-mobile:hover {
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.sign-out-mobile:hover {
+		background: rgba(239, 68, 68, 0.1);
+	}
+
+	/* Full height layout for new entry page */
+	main.wrap.full-height {
+		height: calc(100vh - 80px);
+		height: calc(100dvh - 80px);
+		overflow: hidden;
+		padding: 0;
 	}
 </style>

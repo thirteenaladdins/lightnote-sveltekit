@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { addEntry, updateEntry, loadEntries } from '$lib/stores/entries';
+	import { addEntry, updateEntry, loadEntries } from '$lib/stores/entries-supabase';
+	import { auth } from '$lib/stores/auth';
 	import { getSentiment } from '$lib/utils/sentiment';
 	import { prompts } from '$lib/utils/prompts';
 	import type { Entry } from '$lib/stores/entries';
@@ -9,7 +10,6 @@
 	export let entry: Entry | null = null; // null for new entry, Entry object for editing
 	export let onSave: ((entryId?: string) => void) | null = null; // callback for when entry is saved, with optional entry ID
 	export let onCancel: (() => void) | null = null; // callback for when editing is cancelled
-	export let showHeaderActions = false; // whether to show header actions (for new entries)
 
 	let entryText = '';
 	let currentPrompt = '';
@@ -27,6 +27,15 @@
 		currentPrompt = '';
 	}
 
+	// Communicate state to parent via custom events
+	$: if (typeof window !== 'undefined') {
+		window.dispatchEvent(
+			new CustomEvent('entryFormState', {
+				detail: { entryText, isSaving, currentPrompt }
+			})
+		);
+	}
+
 	onMount(() => {
 		loadEntries();
 		if (!entry) {
@@ -38,6 +47,22 @@
 		if (textarea) {
 			textarea.focus();
 		}
+
+		// Listen for custom events from parent
+		const handleSaveEvent = () => saveEntry();
+		const handleCancelEvent = () => cancelEntry();
+		const handlePickPromptEvent = () => pickPrompt();
+
+		window.addEventListener('saveEntry', handleSaveEvent);
+		window.addEventListener('cancelEntry', handleCancelEvent);
+		window.addEventListener('pickPrompt', handlePickPromptEvent);
+
+		// Cleanup
+		return () => {
+			window.removeEventListener('saveEntry', handleSaveEvent);
+			window.removeEventListener('cancelEntry', handleCancelEvent);
+			window.removeEventListener('pickPrompt', handlePickPromptEvent);
+		};
 	});
 
 	function pickPrompt() {
@@ -46,14 +71,8 @@
 	}
 
 	function autoExpand(node: HTMLTextAreaElement) {
-		node.style.height = 'auto';
-		const newHeight = node.scrollHeight;
-		const max = parseInt(window.getComputedStyle(node).maxHeight);
-		if (newHeight > max) {
-			node.style.height = max + 'px';
-		} else {
-			node.style.height = newHeight + 'px';
-		}
+		// No need to auto-expand since we're using flex layout with overflow
+		// The textarea will take up available space and scroll internally
 	}
 
 	function parseTags(text: string): string[] {
@@ -71,6 +90,11 @@
 
 		if (!text) {
 			status('Nothing to save.', true);
+			return;
+		}
+
+		if (!$auth.user) {
+			status('Please sign in to save entries.', true);
 			return;
 		}
 
@@ -134,7 +158,6 @@
 			if (!entry) {
 				entryText = '';
 				currentPrompt = '';
-				autoExpand(document.getElementById('entry-textarea') as HTMLTextAreaElement);
 			}
 			// Note: No default redirect behavior - let the parent component decide
 		} catch (error) {
@@ -186,42 +209,23 @@
 <svelte:window on:keydown={handleKeydown} />
 
 <div class="entry-form">
-	{#if showHeaderActions}
-		<div class="header-actions">
-			{#if !entry}
-				<button class="secondary" on:click={pickPrompt} disabled={isSaving}> New Prompt </button>
-			{/if}
-			<button class="secondary" on:click={cancelEntry} disabled={isSaving}> Cancel </button>
-			<button class="primary" on:click={saveEntry} disabled={isSaving || !entryText.trim()}>
-				{#if isSaving}
-					Saving...
-				{:else}
-					{entry ? 'Save Changes' : 'Save'}
-				{/if}
-			</button>
-		</div>
-	{/if}
-
 	<div class="text-section">
-		{#if entry}
-			<!-- Show prompt input for editing -->
-			<div class="prompt-section">
-				<div class="section-label">Prompt</div>
-				<input
-					bind:value={currentPrompt}
-					type="text"
-					placeholder="Edit the prompt for this entry (optional)"
-					class="prompt-input"
-					disabled={isSaving}
-				/>
-			</div>
-		{/if}
+		<!-- Always show prompt input for both new and edit modes -->
+		<div class="prompt-section">
+			<div class="section-label">Prompt</div>
+			<input
+				bind:value={currentPrompt}
+				type="text"
+				placeholder="Enter a prompt for this entry (optional)"
+				class="prompt-input"
+				disabled={isSaving}
+			/>
+		</div>
 
 		<textarea
 			id="entry-textarea"
 			bind:value={entryText}
-			placeholder={currentPrompt || 'Type freely. Use #tags anywhere.'}
-			on:input={(e) => autoExpand(e.currentTarget)}
+			placeholder="Type freely. Use #tags anywhere."
 			class="entry-textarea"
 			disabled={isSaving}
 		></textarea>
@@ -240,19 +244,16 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
-	}
-
-	.header-actions {
-		display: flex;
-		gap: 12px;
-		margin-bottom: 16px;
+		gap: 16px;
+		overflow: hidden;
+		min-height: 0;
 	}
 
 	.text-section {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
+		overflow: hidden;
 	}
 
 	.prompt-section {
@@ -290,22 +291,23 @@
 	.entry-textarea {
 		flex: 1;
 		width: 100%;
-		min-height: 400px;
+		min-height: 0;
 		padding: 16px;
-		border: 1px solid var(--border);
-		border-radius: 8px;
+		border: none;
 		background: var(--bg);
 		color: var(--text);
 		font-size: 16px;
 		line-height: 1.6;
-		resize: vertical;
+		resize: none;
 		font-family: inherit;
+		box-sizing: border-box;
+		overflow-y: auto;
 	}
 
 	.entry-textarea:focus {
 		outline: none;
-		border-color: var(--accent);
-		box-shadow: 0 0 0 2px var(--accent-alpha);
+		border: none !important;
+		box-shadow: none !important;
 	}
 
 	.entry-textarea:disabled {
@@ -317,7 +319,8 @@
 		display: flex;
 		align-items: center;
 		gap: 12px;
-		padding: 8px 0;
+		padding: 4px 0;
+		flex-shrink: 0;
 	}
 
 	.status-message {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { entries } from '$lib/stores/entries';
+	import { entries } from '$lib/stores/entries-supabase';
 	import DOMPurify from 'dompurify';
 
 	let weeklyDigest = '';

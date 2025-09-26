@@ -1,4 +1,4 @@
-import { loadEntries } from '$lib/stores/entries';
+import { loadEntries } from '$lib/stores/entries-supabase';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ params }) => {

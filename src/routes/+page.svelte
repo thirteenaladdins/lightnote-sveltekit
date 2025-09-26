@@ -3,48 +3,91 @@
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
-	import { entries, loadEntries, saveEntries, deleteEntry } from '$lib/stores/entries';
+	import { entries, loadEntries, saveEntries, deleteEntry } from '$lib/stores/entries-supabase';
+	import { auth } from '$lib/stores/auth';
 	import { getSentiment } from '$lib/utils/sentiment';
 	import { groupEntriesByDay } from '$lib/utils/entries-grouping';
 	import EntryListItem from '$lib/components/EntryListItem.svelte';
 	import { getFeedbackForEntry } from '$lib/utils/feedback';
 	import type { Entry } from '$lib/stores/entries';
+	import {
+		migrateFromLocalStorage,
+		hasLocalStorageEntries,
+		getLocalStorageEntryCount
+	} from '$lib/utils/migration';
+	import { isSupabaseConfigured } from '$lib/stores/entries-supabase';
 	import '$lib/utils/quick-debug.js';
 
 	let searchQuery = '';
 	let saveStatus = '';
 	let scrollPosition = 0;
 	let entriesContainer: HTMLElement;
+	let showMigrationPrompt = false;
+	let migrationStatus = '';
+	let isMigrating = false;
 
-	// Filtered entries based on search, sorted by most recent first
-	$: filteredEntries = $entries
-		.filter((entry) => {
-			const query = searchQuery.toLowerCase();
+	// Memoized filtered entries to prevent recalculation on every scroll
+	let filteredEntries: Entry[] = [];
+	let groupedEntries: any[] = [];
 
-			// Text/tag filtering
-			if (!query) return true;
-			if (entry.text.toLowerCase().includes(query)) return true;
-			if (entry.tags?.some((tag) => tag.includes(query.replace('#', '')))) return true;
-			return false;
-		})
-		.sort((a, b) => b.created - a.created);
+	// Debounced search to prevent excessive filtering
+	let searchTimeout: NodeJS.Timeout;
+	$: if (searchQuery !== undefined) {
+		clearTimeout(searchTimeout);
+		searchTimeout = setTimeout(() => {
+			updateFilteredEntries();
+		}, 150); // 150ms debounce
+	}
 
-	// Group filtered entries by day
-	$: groupedEntries = groupEntriesByDay(filteredEntries);
+	// Update filtered entries when entries or search query changes
+	function updateFilteredEntries() {
+		const query = searchQuery.toLowerCase();
+
+		filteredEntries = $entries
+			.filter((entry) => {
+				// Text/tag filtering
+				if (!query) return true;
+				if (entry.text.toLowerCase().includes(query)) return true;
+				if (entry.tags?.some((tag) => tag.includes(query.replace('#', '')))) return true;
+				return false;
+			})
+			.sort((a, b) => b.created - a.created);
+
+		// Update grouped entries
+		groupedEntries = groupEntriesByDay(filteredEntries);
+	}
+
+	// Initialize filtered entries when entries change
+	$: if ($entries.length > 0) {
+		updateFilteredEntries();
+	}
+
+	// Load entries when user authentication state changes
+	$: if ($auth.user && !$auth.loading) {
+		console.log('📝 Loading entries for authenticated user');
+		loadEntries();
+		// Check for localStorage entries to migrate
+		if (hasLocalStorageEntries()) {
+			showMigrationPrompt = true;
+		}
+	}
 
 	// Track if scroll has been restored to prevent multiple restorations
 	let scrollRestored = false;
 
 	onMount(() => {
-		loadEntries();
+		// Only load entries if user is authenticated
+		if ($auth.user) {
+			loadEntries();
+		}
 
 		// Restore scroll position from sessionStorage on initial load
 		if (browser) {
 			const storedPosition = sessionStorage.getItem('entries-scroll-position');
 			if (storedPosition) {
 				scrollPosition = parseInt(storedPosition, 10);
-				// Wait for the component to be fully rendered using multiple strategies
-				const restoreScroll = () => {
+				// Use a single requestAnimationFrame for immediate restoration
+				requestAnimationFrame(() => {
 					if (entriesContainer && scrollPosition > 0) {
 						// Temporarily disable smooth scrolling
 						const originalScrollBehavior = entriesContainer.style.scrollBehavior;
@@ -52,18 +95,10 @@
 
 						entriesContainer.scrollTop = scrollPosition;
 
-						// Restore smooth scrolling after a brief delay
-						setTimeout(() => {
-							if (entriesContainer) {
-								entriesContainer.style.scrollBehavior = originalScrollBehavior;
-							}
-						}, 100);
+						// Restore smooth scrolling immediately
+						entriesContainer.style.scrollBehavior = originalScrollBehavior;
+						scrollRestored = true;
 					}
-				};
-
-				// Try multiple times to ensure DOM is ready
-				requestAnimationFrame(() => {
-					requestAnimationFrame(restoreScroll);
 				});
 			}
 		}
@@ -584,22 +619,40 @@
 			entriesContainer.removeEventListener('scroll', saveScrollPosition);
 			scrollListenerAdded = false;
 		}
+
+		// Clean up timeouts and animation frames to prevent memory leaks
+		if (searchTimeout) {
+			clearTimeout(searchTimeout);
+		}
+		if (scrollAnimationFrame) {
+			cancelAnimationFrame(scrollAnimationFrame);
+		}
 	});
 
-	// Save scroll position on scroll
+	// Optimized scroll position saving using requestAnimationFrame
+	let scrollAnimationFrame: number | null = null;
 	function saveScrollPosition() {
 		if (browser && entriesContainer) {
-			scrollPosition = entriesContainer.scrollTop;
-			try {
-				if (scrollPosition > 0) {
-					sessionStorage.setItem('entries-scroll-position', scrollPosition.toString());
-				} else {
-					// Clear stored position when at top
-					sessionStorage.removeItem('entries-scroll-position');
-				}
-			} catch (error) {
-				console.error('Failed to save scroll position:', error);
+			// Cancel previous animation frame
+			if (scrollAnimationFrame) {
+				cancelAnimationFrame(scrollAnimationFrame);
 			}
+
+			// Use requestAnimationFrame for smooth, efficient saving
+			scrollAnimationFrame = requestAnimationFrame(() => {
+				scrollPosition = entriesContainer.scrollTop;
+				try {
+					if (scrollPosition > 0) {
+						sessionStorage.setItem('entries-scroll-position', scrollPosition.toString());
+					} else {
+						// Clear stored position when at top
+						sessionStorage.removeItem('entries-scroll-position');
+					}
+				} catch (error) {
+					console.error('Failed to save scroll position:', error);
+				}
+				scrollAnimationFrame = null;
+			});
 		}
 	}
 
@@ -607,8 +660,10 @@
 	let scrollListenerAdded = false;
 
 	// Add scroll event listener when container becomes available
+	// Use a more efficient approach to avoid reactive statements during scroll
 	$: if (browser && entriesContainer && !scrollListenerAdded) {
-		entriesContainer.addEventListener('scroll', saveScrollPosition);
+		// Add listener immediately for better performance
+		entriesContainer.addEventListener('scroll', saveScrollPosition, { passive: true });
 		scrollListenerAdded = true;
 	}
 
@@ -626,22 +681,9 @@
 					// Set scroll position immediately
 					entriesContainer.scrollTop = position;
 
-					// Restore smooth scrolling after a brief delay
-					setTimeout(() => {
-						if (entriesContainer) {
-							entriesContainer.style.scrollBehavior = originalScrollBehavior;
-						}
-					}, 100);
-
-					// Verify the scroll position was actually set
-					if (Math.abs(entriesContainer.scrollTop - position) > 5) {
-						// Try again after a short delay
-						setTimeout(() => {
-							if (entriesContainer) {
-								entriesContainer.scrollTop = position;
-							}
-						}, 50);
-					}
+					// Restore smooth scrolling immediately
+					entriesContainer.style.scrollBehavior = originalScrollBehavior;
+					scrollRestored = true;
 				}
 			}
 		}
@@ -651,7 +693,6 @@
 	$: if (browser && $page.url.pathname === '/' && entriesContainer && !scrollRestored) {
 		// Restore immediately to prevent visible scrolling
 		restoreScrollPosition();
-		scrollRestored = true;
 	}
 
 	function deleteEntryById(entry: Entry) {
@@ -669,8 +710,8 @@
 		saveScrollPosition();
 		// Reset scroll restoration flag so it can be restored when coming back
 		scrollRestored = false;
-		// Navigate immediately
-		goto(`/entry/${entry.id}`);
+		// Navigate immediately with smooth transition
+		goto(`/entry/${entry.id}`, { replaceState: false, noScroll: true });
 	}
 
 	function status(msg: string, isError = false) {
@@ -678,6 +719,36 @@
 		setTimeout(() => {
 			saveStatus = '';
 		}, 4000);
+	}
+
+	async function migrateEntries() {
+		if (isMigrating) return;
+
+		isMigrating = true;
+		migrationStatus = 'Migrating entries...';
+
+		try {
+			const result = await migrateFromLocalStorage();
+			if (result.success) {
+				migrationStatus = `Successfully migrated ${result.count} entries!`;
+				showMigrationPrompt = false;
+				// Reload entries to show the migrated ones
+				loadEntries();
+			} else {
+				migrationStatus = `Migration failed: ${result.error}`;
+			}
+		} catch (error) {
+			migrationStatus = `Migration failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+		} finally {
+			isMigrating = false;
+			setTimeout(() => {
+				migrationStatus = '';
+			}, 5000);
+		}
+	}
+
+	function dismissMigration() {
+		showMigrationPrompt = false;
 	}
 </script>
 
@@ -706,9 +777,77 @@
 		/>
 	</div>
 
+	<!-- Configuration Warning -->
+	{#if !isSupabaseConfigured()}
+		<div class="config-warning">
+			<div class="config-content">
+				<h3>⚠️ Supabase Not Configured</h3>
+				<p>To use cloud sync and authentication, please set up your Supabase credentials.</p>
+				<div class="config-actions">
+					<button
+						class="config-button"
+						on:click={() => window.open('https://supabase.com', '_blank')}
+					>
+						Set Up Supabase
+					</button>
+					<button class="dismiss-button" on:click={() => {}}> Continue Offline </button>
+				</div>
+				<div class="config-instructions">
+					<p><strong>Quick Setup:</strong></p>
+					<ol>
+						<li>
+							Create a project at <a href="https://supabase.com" target="_blank">supabase.com</a>
+						</li>
+						<li>Copy your Project URL and API key</li>
+						<li>Update <code>.env.local</code> with your credentials</li>
+						<li>Run the SQL schema from <code>supabase-schema.sql</code></li>
+						<li>Restart the development server</li>
+					</ol>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Migration Prompt -->
+	{#if showMigrationPrompt && $auth.user}
+		<div class="migration-prompt">
+			<div class="migration-content">
+				<h3>📦 Migrate Your Entries</h3>
+				<p>
+					We found {getLocalStorageEntryCount()} entries in your browser storage. Would you like to migrate
+					them to your account for cross-device sync?
+				</p>
+				<div class="migration-actions">
+					<button class="migrate-button" on:click={migrateEntries} disabled={isMigrating}>
+						{isMigrating ? 'Migrating...' : 'Migrate Entries'}
+					</button>
+					<button class="dismiss-button" on:click={dismissMigration} disabled={isMigrating}>
+						Not Now
+					</button>
+				</div>
+				{#if migrationStatus}
+					<div class="migration-status">
+						{migrationStatus}
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
+
 	<!-- Entries List -->
 	<div class="entries-list" bind:this={entriesContainer}>
-		{#if groupedEntries.length === 0}
+		{#if $auth.loading}
+			<div class="empty-state">
+				<h2>Loading...</h2>
+				<p>Please wait while we initialize the app.</p>
+			</div>
+		{:else if !$auth.user}
+			<div class="empty-state">
+				<h2>Welcome to Lightnote</h2>
+				<p>Your personal journaling companion with AI-powered insights.</p>
+				<a href="/login" class="login-prompt-button">Sign In to Get Started</a>
+			</div>
+		{:else if groupedEntries.length === 0}
 			<div class="empty-state">
 				<p>No entries found.</p>
 				{#if filteredEntries.length === 0 && $entries.length > 0}
@@ -751,17 +890,26 @@
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 20px;
+		/* Smooth transitions */
+		animation: fadeIn 0.2s ease-out;
+		/* Full height layout */
+		height: calc(100vh - 80px); /* Subtract header height */
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
 	}
 
 	.page-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 32px;
+		margin-bottom: 24px;
 		padding-bottom: 16px;
 		border-bottom: 1px solid var(--border);
 		position: relative;
 		z-index: 5;
+		/* Fixed header */
+		flex-shrink: 0;
 	}
 
 	.page-header h1 {
@@ -805,6 +953,8 @@
 
 	.search-section {
 		margin-bottom: 24px;
+		/* Fixed search */
+		flex-shrink: 0;
 	}
 
 	.search-input {
@@ -829,9 +979,24 @@
 		display: flex;
 		flex-direction: column;
 		gap: 32px;
-		max-height: calc(100vh - 200px);
+		flex: 1;
 		overflow-y: auto;
 		scroll-behavior: smooth;
+		/* Optimize scrolling performance */
+		will-change: scroll-position;
+		transform: translateZ(0);
+		-webkit-overflow-scrolling: touch;
+		/* Additional performance optimizations */
+		contain: layout style paint;
+		content-visibility: auto;
+		/* Smooth scrolling improvements */
+		scroll-padding-top: 0;
+		scroll-snap-type: none;
+		/* Hardware acceleration */
+		backface-visibility: hidden;
+		perspective: 1000px;
+		/* Ensure proper scrolling container */
+		min-height: 0;
 	}
 
 	.day-group {
@@ -867,6 +1032,200 @@
 		margin: 8px 0;
 	}
 
+	.empty-state h2 {
+		margin: 0 0 16px 0;
+		font-size: 1.5rem;
+		font-weight: 600;
+		color: var(--text);
+	}
+
+	.login-prompt-button {
+		display: inline-block;
+		background: var(--accent);
+		color: white;
+		padding: 12px 24px;
+		border-radius: 8px;
+		text-decoration: none;
+		font-weight: 500;
+		font-size: 1rem;
+		margin-top: 16px;
+		transition: all 0.2s ease;
+	}
+
+	.login-prompt-button:hover {
+		background: var(--accent-hover, var(--accent));
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	}
+
+	.migration-prompt {
+		background: var(--card-bg, var(--bg));
+		border: 1px solid var(--accent);
+		border-radius: 12px;
+		padding: 20px;
+		margin-bottom: 24px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		/* Fixed migration prompt */
+		flex-shrink: 0;
+	}
+
+	.migration-content h3 {
+		margin: 0 0 12px 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--text);
+	}
+
+	.migration-content p {
+		margin: 0 0 16px 0;
+		color: var(--muted);
+		line-height: 1.5;
+	}
+
+	.migration-actions {
+		display: flex;
+		gap: 12px;
+		margin-bottom: 12px;
+	}
+
+	.migrate-button {
+		background: var(--accent);
+		color: white;
+		border: none;
+		padding: 10px 20px;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.migrate-button:hover:not(:disabled) {
+		background: var(--accent-hover, var(--accent));
+		transform: translateY(-1px);
+	}
+
+	.migrate-button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.dismiss-button {
+		background: transparent;
+		color: var(--text);
+		border: 1px solid var(--border);
+		padding: 10px 20px;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.dismiss-button:hover:not(:disabled) {
+		background: var(--hover-bg, var(--muted-alpha));
+		border-color: var(--accent);
+	}
+
+	.dismiss-button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.migration-status {
+		padding: 8px 12px;
+		background: var(--success-bg, #f0fdf4);
+		color: var(--success, #10b981);
+		border: 1px solid var(--success-border, #bbf7d0);
+		border-radius: 6px;
+		font-size: 0.9rem;
+	}
+
+	.config-warning {
+		background: var(--warning-bg, #fef3c7);
+		border: 1px solid var(--warning, #f59e0b);
+		border-radius: 12px;
+		padding: 20px;
+		margin-bottom: 24px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		/* Fixed config warning */
+		flex-shrink: 0;
+	}
+
+	.config-content h3 {
+		margin: 0 0 12px 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--warning, #f59e0b);
+	}
+
+	.config-content p {
+		margin: 0 0 16px 0;
+		color: var(--text);
+		line-height: 1.5;
+	}
+
+	.config-actions {
+		display: flex;
+		gap: 12px;
+		margin-bottom: 16px;
+	}
+
+	.config-button {
+		background: var(--warning, #f59e0b);
+		color: white;
+		border: none;
+		padding: 10px 20px;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.config-button:hover {
+		background: var(--warning-dark, #d97706);
+		transform: translateY(-1px);
+	}
+
+	.config-instructions {
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 16px;
+		font-size: 0.9rem;
+	}
+
+	.config-instructions p {
+		margin: 0 0 8px 0;
+		font-weight: 600;
+	}
+
+	.config-instructions ol {
+		margin: 0;
+		padding-left: 20px;
+	}
+
+	.config-instructions li {
+		margin: 4px 0;
+		line-height: 1.4;
+	}
+
+	.config-instructions code {
+		background: var(--muted-alpha);
+		padding: 2px 6px;
+		border-radius: 4px;
+		font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+		font-size: 0.85em;
+	}
+
+	.config-instructions a {
+		color: var(--accent);
+		text-decoration: none;
+	}
+
+	.config-instructions a:hover {
+		text-decoration: underline;
+	}
+
 	.status-message {
 		position: fixed;
 		top: 20px;
@@ -889,6 +1248,7 @@
 	@media (max-width: 768px) {
 		.home-page {
 			padding: 16px;
+			height: calc(100vh - 80px); /* Maintain full height on mobile */
 		}
 
 		.page-header {
@@ -922,6 +1282,18 @@
 			top: auto;
 			right: auto;
 			margin: 16px 0;
+		}
+	}
+
+	/* Animation keyframes */
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
 		}
 	}
 

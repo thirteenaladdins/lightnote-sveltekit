@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
-	import { updateEntry, hasAnalysis, isAnalysisStale, entries } from '$lib/stores/entries';
+	import { updateEntry, hasAnalysis, isAnalysisStale, entries } from '$lib/stores/entries-supabase';
 	import { getSentiment } from '$lib/utils/sentiment';
 	import { generateEntryInsights, getMoodClass, getMoodArrow } from '$lib/utils/ai-insights';
 	import { isLLMConfigured } from '$lib/utils/llm';

@@ -16,13 +16,19 @@ export function groupEntriesByDay(entries: Entry[], timezone?: string): GroupedE
 		return [];
 	}
 
-	// Sort entries by creation date (most recent first)
-	const sortedEntries = [...entries].sort((a, b) => b.created - a.created);
+	// Use a more efficient approach - avoid creating new Date objects repeatedly
+	const today = new Date();
+	const yesterday = new Date(today);
+	yesterday.setDate(yesterday.getDate() - 1);
+	
+	const todayKey = formatDateKey(today, timezone);
+	const yesterdayKey = formatDateKey(yesterday, timezone);
 
-	// Group by date
+	// Group by date using a Map for O(1) lookups
 	const groups = new Map<string, Entry[]>();
 
-	for (const entry of sortedEntries) {
+	// Process entries in a single pass
+	for (const entry of entries) {
 		const entryDate = new Date(entry.created);
 		const dateKey = formatDateKey(entryDate, timezone);
 		
@@ -36,17 +42,16 @@ export function groupEntriesByDay(entries: Entry[], timezone?: string): GroupedE
 	const result: GroupedEntry[] = [];
 	
 	for (const [dateKey, items] of groups) {
-		const date = new Date(dateKey);
-		const today = new Date();
-		const yesterday = new Date(today);
-		yesterday.setDate(yesterday.getDate() - 1);
+		// Sort items within each group by creation date (most recent first)
+		items.sort((a, b) => b.created - a.created);
 
 		let dateLabel: string;
-		if (isSameDay(date, today)) {
+		if (dateKey === todayKey) {
 			dateLabel = 'Today';
-		} else if (isSameDay(date, yesterday)) {
+		} else if (dateKey === yesterdayKey) {
 			dateLabel = 'Yesterday';
 		} else {
+			const date = new Date(dateKey);
 			dateLabel = formatDateLabel(date);
 		}
 
@@ -55,6 +60,13 @@ export function groupEntriesByDay(entries: Entry[], timezone?: string): GroupedE
 			items
 		});
 	}
+
+	// Sort groups by date (most recent first)
+	result.sort((a, b) => {
+		const dateA = new Date(a.items[0]?.created || 0);
+		const dateB = new Date(b.items[0]?.created || 0);
+		return dateB.getTime() - dateA.getTime();
+	});
 
 	return result;
 }

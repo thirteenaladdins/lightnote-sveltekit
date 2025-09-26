@@ -5,14 +5,19 @@
 	export let onDelete: (entry: Entry) => void = () => {};
 	export let onClick: (entry: Entry) => void = () => {};
 
+	// Pre-calculate today and yesterday dates to avoid creating new Date objects
+	const today = new Date();
+	const yesterday = new Date(today);
+	yesterday.setDate(yesterday.getDate() - 1);
+	const todayString = today.toDateString();
+	const yesterdayString = yesterday.toDateString();
+
 	function formatDate(date: number): string {
 		const entryDate = new Date(date);
-		const today = new Date();
-		const yesterday = new Date(today);
-		yesterday.setDate(yesterday.getDate() - 1);
+		const entryDateString = entryDate.toDateString();
 
 		// Check if it's today
-		if (entryDate.toDateString() === today.toDateString()) {
+		if (entryDateString === todayString) {
 			return entryDate.toLocaleTimeString('en-US', {
 				hour: '2-digit',
 				minute: '2-digit',
@@ -21,7 +26,7 @@
 		}
 
 		// Check if it's yesterday
-		if (entryDate.toDateString() === yesterday.toDateString()) {
+		if (entryDateString === yesterdayString) {
 			return 'Yesterday';
 		}
 
@@ -96,14 +101,18 @@
 		padding: 12px 16px;
 		border-bottom: 1px solid var(--border);
 		cursor: pointer;
-		transition: all 0.2s ease;
+		transition: all 0.15s ease;
 		min-height: 60px;
 		margin: 0 4px 0 4px;
+		/* Performance optimizations */
+		will-change: transform, background-color;
+		transform: translateZ(0);
+		backface-visibility: hidden;
 	}
 
 	.entry-item:hover {
 		background-color: rgba(255, 255, 255, 0.1);
-		transform: translateY(-1px);
+		transform: translateY(-1px) translateZ(0);
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 	}
 
@@ -186,10 +195,6 @@
 		justify-content: center;
 		min-width: 32px;
 		min-height: 32px;
-	}
-
-	.edit-btn:hover {
-		background-color: var(--accent-alpha);
 	}
 
 	.delete-btn:hover {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { entries } from '$lib/stores/entries';
+	import { entries } from '$lib/stores/entries-supabase';
 	import { testDataModel, clearTestData } from '$lib/utils/test-data-model';
 	import type { Entry as StoreEntry } from '$lib/stores/entries';
 	import type { Entry, EntryInsight } from '$lib/types';
