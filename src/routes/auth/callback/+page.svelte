@@ -1,19 +1,19 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
-    import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 
-    onMount(() => {
-        // With magic links, the session is applied via URL hash on this page load.
-        // Redirect immediately to the app home.
-        goto('/');
-    });
+	onMount(() => {
+		// With magic links, the session is applied via URL hash on this page load.
+		// Redirect immediately to the app home.
+		goto('/');
+	});
 </script>
 
 <div class="auth-callback">
-    <div class="success">
-        <h2>Authentication Successful</h2>
-        <p>Redirecting to your journal...</p>
-    </div>
+	<div class="success">
+		<h2>Authentication Successful</h2>
+		<p>Redirecting to your journal...</p>
+	</div>
 </div>
 
 <style>
