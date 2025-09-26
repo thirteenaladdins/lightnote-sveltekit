@@ -93,6 +93,11 @@
 			return;
 		}
 
+		if ($auth.loading) {
+			status('Please wait while authentication loads...', true);
+			return;
+		}
+
 		if (!$auth.user) {
 			status('Please sign in to save entries.', true);
 			return;
@@ -109,7 +114,7 @@
 					text: text,
 					prompt: prompt.trim() || undefined
 				};
-				updateEntry(entry.id, updatedEntry);
+				await updateEntry(entry.id, updatedEntry);
 				status('Entry updated successfully!');
 
 				// Call the onSave callback for editing existing entries
@@ -145,7 +150,7 @@
 					}
 				};
 
-				addEntry(newEntry);
+				await addEntry(newEntry);
 				status('Entry saved successfully!');
 
 				// Call the onSave callback for new entries
@@ -162,7 +167,11 @@
 			// Note: No default redirect behavior - let the parent component decide
 		} catch (error) {
 			console.error('Error saving entry:', error);
-			status('Failed to save entry. Please try again.', true);
+			if (error instanceof Error && error.message.includes('not authenticated')) {
+				status('Authentication expired. Please sign in again.', true);
+			} else {
+				status('Failed to save entry. Please try again.', true);
+			}
 		} finally {
 			isSaving = false;
 		}

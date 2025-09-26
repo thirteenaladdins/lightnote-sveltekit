@@ -68,7 +68,8 @@ export async function initAuth() {
     const { data: { session }, error } = await supabase.auth.getSession();
     if (error) {
       console.error('🔐 Session error:', error);
-      throw error;
+      // Don't throw error, just log it and continue
+      console.log('🔐 Continuing without session due to error');
     }
 
     console.log('🔐 Session loaded:', session ? 'authenticated' : 'not authenticated');
@@ -79,13 +80,14 @@ export async function initAuth() {
 
     // Listen for auth changes
     supabase.auth.onAuthStateChange((event, session) => {
-      console.log('🔐 Auth state changed:', event, session?.user?.email);
+      console.log('🔐 Auth state changed:', event, session?.user?.email || 'no user');
       auth.setSession(session);
       auth.setUser(session?.user ?? null);
       auth.setLoading(false);
     });
   } catch (error) {
     console.error('🔐 Error initializing auth:', error);
+    // Set loading to false even on error to prevent infinite loading
     auth.setLoading(false);
   }
 }

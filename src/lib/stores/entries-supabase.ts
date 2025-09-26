@@ -110,8 +110,43 @@ function createEntriesStore() {
       }
     },
     add: async (entry: Omit<Entry, 'id' | 'created' | 'updated'>) => {
+      // Check if Supabase is configured first
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Entries] Supabase not configured, skipping add');
+        // Return a mock entry for offline mode
+        const mockEntry: Entry = {
+          id: crypto.randomUUID(),
+          created: Date.now(),
+          text: entry.text,
+          textNorm: entry.textNorm,
+          prompt: entry.prompt,
+          tags: entry.tags || [],
+          compound: entry.compound || 0,
+          meta: entry.meta,
+          analysis: entry.analysis
+        };
+        update(entries => [mockEntry, ...entries]);
+        return mockEntry;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) {
+        console.warn('⚠️ [Entries] User not authenticated, skipping add');
+        // Return a mock entry for offline mode
+        const mockEntry: Entry = {
+          id: crypto.randomUUID(),
+          created: Date.now(),
+          text: entry.text,
+          textNorm: entry.textNorm,
+          prompt: entry.prompt,
+          tags: entry.tags || [],
+          compound: entry.compound || 0,
+          meta: entry.meta,
+          analysis: entry.analysis
+        };
+        update(entries => [mockEntry, ...entries]);
+        return mockEntry;
+      }
 
       try {
         const { data, error } = await supabase
@@ -131,8 +166,17 @@ function createEntriesStore() {
       }
     },
     update: async (id: string, updatedEntry: Entry) => {
+      // Check if Supabase is configured first
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Entries] Supabase not configured, skipping update');
+        return updatedEntry;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) {
+        console.warn('⚠️ [Entries] User not authenticated, skipping update');
+        return updatedEntry;
+      }
 
       try {
         const { data, error } = await supabase
@@ -156,8 +200,19 @@ function createEntriesStore() {
       }
     },
     delete: async (id: string) => {
+      // Check if Supabase is configured first
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Entries] Supabase not configured, removing from local store only');
+        update(entries => entries.filter(entry => entry.id !== id));
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) {
+        console.warn('⚠️ [Entries] User not authenticated, removing from local store only');
+        update(entries => entries.filter(entry => entry.id !== id));
+        return;
+      }
 
       try {
         const { error } = await supabase
@@ -175,8 +230,19 @@ function createEntriesStore() {
       }
     },
     clear: async () => {
+      // Check if Supabase is configured first
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Entries] Supabase not configured, clearing local store only');
+        set([]);
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) {
+        console.warn('⚠️ [Entries] User not authenticated, clearing local store only');
+        set([]);
+        return;
+      }
 
       try {
         const { error } = await supabase
@@ -193,8 +259,17 @@ function createEntriesStore() {
       }
     },
     addSentimentToEntries: async () => {
+      // Check if Supabase is configured first
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Entries] Supabase not configured, skipping sentiment analysis');
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) {
+        console.warn('⚠️ [Entries] User not authenticated, skipping sentiment analysis');
+        return;
+      }
 
       try {
         const { data: entries, error: fetchError } = await supabase
@@ -242,8 +317,29 @@ function createEntriesStore() {
       }
     },
     setAnalysisForEntry: async (entryId: string, analysis: Entry['analysis']) => {
+      // Check if Supabase is configured first
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Entries] Supabase not configured, updating local store only');
+        // Update local store
+        update(entries => 
+          entries.map(entry => 
+            entry.id === entryId ? { ...entry, analysis } : entry
+          )
+        );
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) {
+        console.warn('⚠️ [Entries] User not authenticated, updating local store only');
+        // Update local store
+        update(entries => 
+          entries.map(entry => 
+            entry.id === entryId ? { ...entry, analysis } : entry
+          )
+        );
+        return;
+      }
 
       try {
         const { error } = await supabase
@@ -266,8 +362,21 @@ function createEntriesStore() {
       }
     },
     getAnalysisForEntry: async (entryId: string): Promise<Entry['analysis'] | undefined> => {
+      // Check if Supabase is configured first
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Entries] Supabase not configured, checking local store only');
+        const entriesList = get(entriesSupabase);
+        const entry = entriesList.find(e => e.id === entryId);
+        return entry?.analysis;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return undefined;
+      if (!user) {
+        console.warn('⚠️ [Entries] User not authenticated, checking local store only');
+        const entriesList = get(entriesSupabase);
+        const entry = entriesList.find(e => e.id === entryId);
+        return entry?.analysis;
+      }
 
       try {
         const { data, error } = await supabase
