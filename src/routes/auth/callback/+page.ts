@@ -1,20 +1,8 @@
-import { supabase } from '$lib/supabase';
 import { redirect } from '@sveltejs/kit';
 
 export async function load({ url }) {
-  const code = url.searchParams.get('code');
+  // For magic links, Supabase sets the session from the hash fragment automatically.
+  // We don't need to exchange a code here. Just redirect to the intended page.
   const next = url.searchParams.get('next') ?? '/';
-
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      console.error('Error exchanging code for session:', error);
-      return {
-        error: 'Authentication failed. Please try again.'
-      };
-    }
-  }
-
-  // Redirect to the intended page or home
   throw redirect(302, next);
 }
