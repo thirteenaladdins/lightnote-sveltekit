@@ -23,19 +23,29 @@ function createAuthStore() {
     setSession: (session: Session | null) => update(state => ({ ...state, session })),
     setLoading: (loading: boolean) => update(state => ({ ...state, loading })),
     signIn: async (email: string) => {
+      // Use production URL for Vercel deployment
+      const baseUrl = window.location.hostname === 'localhost' 
+        ? window.location.origin 
+        : 'https://lightnote-sveltekit.vercel.app';
+      
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`
+          emailRedirectTo: `${baseUrl}/auth/callback`
         }
       });
       if (error) throw error;
     },
     signInWithProvider: async (provider: 'google' | 'github' | 'apple') => {
+      // Use production URL for Vercel deployment
+      const baseUrl = window.location.hostname === 'localhost' 
+        ? window.location.origin 
+        : 'https://lightnote-sveltekit.vercel.app';
+      
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`
+          redirectTo: `${baseUrl}/auth/callback`
         }
       });
       if (error) throw error;
