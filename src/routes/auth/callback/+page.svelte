@@ -3,9 +3,10 @@
 	import { goto } from '$app/navigation';
 
 	onMount(() => {
-		// With magic links, the session is applied via URL hash on this page load.
-		// Redirect immediately to the app home.
-		goto('/');
+		// Give Supabase client time to process hash fragment
+		setTimeout(() => {
+			goto('/');
+		}, 100);
 	});
 </script>
 
