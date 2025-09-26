@@ -525,7 +525,7 @@ auth.subscribe(({ user, loading }) => {
     if (user) {
       loadEntries();
     } else {
-      entriesSupabase.update(() => []);
+      entriesSupabase.set([]);
     }
   }
 });
