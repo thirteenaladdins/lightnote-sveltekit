@@ -26,8 +26,17 @@ function createSettingsStore() {
   return {
     subscribe,
     load: async () => {
+      // Check if Supabase is configured first
+      const { isSupabaseConfigured } = await import('$lib/supabase');
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Settings] Supabase not configured, using default settings');
+        set(defaultSettings);
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
+        console.warn('⚠️ [Settings] User not authenticated, using default settings');
         set(defaultSettings);
         return;
       }
@@ -55,8 +64,20 @@ function createSettingsStore() {
       }
     },
     set: async (key: string, value: any) => {
+      // Check if Supabase is configured first
+      const { isSupabaseConfigured } = await import('$lib/supabase');
+      if (!isSupabaseConfigured()) {
+        console.warn('⚠️ [Settings] Supabase not configured, updating local store only');
+        update(settings => ({ ...settings, [key]: value }));
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) {
+        console.warn('⚠️ [Settings] User not authenticated, updating local store only');
+        update(settings => ({ ...settings, [key]: value }));
+        return;
+      }
 
       try {
         const { error } = await supabase
