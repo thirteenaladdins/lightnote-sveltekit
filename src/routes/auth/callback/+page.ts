@@ -1,5 +1,4 @@
 import { supabase } from '$lib/supabase';
-import { redirect } from '@sveltejs/kit';
 
 export async function load({ url }) {
   // Handle both OAuth code exchange and magic link hash fragments
@@ -12,13 +11,17 @@ export async function load({ url }) {
     if (error) {
       console.error('Error exchanging code for session:', error);
       return {
-        error: 'Authentication failed. Please try again.'
+        error: 'Authentication failed. Please try again.',
+        next
       };
     }
   }
   // For magic links, the session is established via hash fragment
   // The Supabase client will automatically handle this on the client side
-  
-  // Redirect to the intended page
-  throw redirect(302, next);
+
+  // Return the redirect target to the component
+  return {
+    next,
+    error: null
+  };
 }
