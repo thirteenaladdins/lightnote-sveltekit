@@ -1,5 +1,8 @@
 import { supabase } from '$lib/supabase';
 
+// Disable prerendering for this route since it handles dynamic auth flows
+export const prerender = false;
+
 export async function load({ url }) {
   // Handle both OAuth code exchange and magic link hash fragments
   const code = url.searchParams.get('code');
