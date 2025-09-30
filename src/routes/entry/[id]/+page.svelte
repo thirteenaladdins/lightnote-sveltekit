@@ -31,9 +31,20 @@
 	let insightsExpanded = false;
 	let insightsSection: HTMLDivElement;
 
+	// Loading states
+	let isPageLoading = true;
+	let loadingMessage = 'Loading entry...';
+	let loadingProgress = 0;
+
 	// Get current entry from URL parameter
 	$: entryId = $page.params.id || data.entryId;
 	$: currentEntry = $entries.find((e) => e.id === entryId) || null;
+
+	// Update loading state when entry becomes available
+	$: if (currentEntry && isPageLoading) {
+		// Entry is now available, but we'll let onMount handle the final loading state
+		console.log('📝 [EntryView] Entry found:', currentEntry.id);
+	}
 
 	// Track the current entry text to detect changes
 	$: currentEntryText = currentEntry?.text || '';
@@ -59,27 +70,51 @@
 	onMount(async () => {
 		// Check if entry exists from server-side data
 		if (!data.entryExists) {
+			loadingMessage = 'Entry not found';
+			await new Promise(resolve => setTimeout(resolve, 1000)); // Show message briefly
 			goto('/');
 			return;
 		}
 
 		// Wait a bit for entries to load if they're not available yet
 		if (!currentEntry) {
+			loadingMessage = 'Loading entry...';
+			loadingProgress = 0;
 			// Try to wait for entries to load
 			let attempts = 0;
-			while (!currentEntry && attempts < 10) {
+			while (!currentEntry && attempts < 20) { // Increased attempts
 				await new Promise((resolve) => setTimeout(resolve, 100));
 				attempts++;
+				
+				// Update loading message and progress based on progress
+				loadingProgress = Math.min((attempts / 20) * 100, 90);
+				
+				if (attempts < 5) {
+					loadingMessage = 'Loading entry...';
+				} else if (attempts < 10) {
+					loadingMessage = 'Fetching data...';
+				} else {
+					loadingMessage = 'Almost ready...';
+				}
 			}
 
 			if (!currentEntry) {
+				loadingMessage = 'Entry not found';
+				await new Promise(resolve => setTimeout(resolve, 1000));
 				goto('/');
 				return;
 			}
 		}
 
 		// Initialize quote highlighting
+		loadingMessage = 'Preparing entry...';
+		loadingProgress = 95;
 		await initializeQuoteHighlighting();
+		
+		// Mark page as loaded
+		loadingProgress = 100;
+		await new Promise(resolve => setTimeout(resolve, 200)); // Brief delay to show completion
+		isPageLoading = false;
 	});
 
 	onDestroy(() => {
@@ -225,18 +260,25 @@
 	>
 </svelte:head>
 
-{#if !data.entryExists}
+{#if isPageLoading}
+	<div class="loading-page">
+		<div class="loading-content">
+			<div class="loading-spinner-large">⟳</div>
+			<h2>{loadingMessage}</h2>
+			<p>Please wait while we prepare your entry.</p>
+			<div class="progress-container">
+				<div class="progress-bar">
+					<div class="progress-fill" style="width: {loadingProgress}%"></div>
+				</div>
+				<div class="progress-text">{Math.round(loadingProgress)}%</div>
+			</div>
+		</div>
+	</div>
+{:else if !data.entryExists}
 	<div class="entry-not-found">
 		<h2>Entry Not Found</h2>
 		<p>The entry you're looking for doesn't exist or has been deleted.</p>
 		<button class="back-button" on:click={() => goto('/')}> ← Back to Entries </button>
-	</div>
-{:else if !currentEntry}
-	<div class="loading-page">
-		<div class="loading-content">
-			<h2>Loading Entry...</h2>
-			<p>Please wait while we load your entry.</p>
-		</div>
 	</div>
 {:else if currentEntry}
 	<div class="entry-page">
@@ -510,11 +552,18 @@
 		justify-content: center;
 		min-height: 100vh;
 		padding: 20px;
+		background: var(--bg);
+		animation: fadeIn 0.3s ease-out;
 	}
 
 	.loading-content {
 		text-align: center;
 		max-width: 400px;
+		background: var(--card-bg);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		padding: 40px 30px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 	}
 
 	.loading-content h2 {
@@ -525,6 +574,59 @@
 	.loading-content p {
 		margin-bottom: 24px;
 		color: var(--muted);
+	}
+
+	.loading-spinner-large {
+		font-size: 48px;
+		color: var(--accent);
+		animation: spin 1s linear infinite;
+		margin-bottom: 24px;
+		display: block;
+	}
+
+	.progress-container {
+		margin-top: 24px;
+		width: 100%;
+	}
+
+	.progress-bar {
+		width: 100%;
+		height: 6px;
+		background: var(--border);
+		border-radius: 3px;
+		overflow: hidden;
+		margin-bottom: 8px;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, var(--accent), var(--accent-hover, var(--accent)));
+		border-radius: 3px;
+		transition: width 0.3s ease;
+		position: relative;
+	}
+
+	.progress-fill::after {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+		animation: shimmer 2s infinite;
+	}
+
+	.progress-text {
+		text-align: center;
+		font-size: 12px;
+		color: var(--muted);
+		font-weight: 500;
+	}
+
+	@keyframes shimmer {
+		0% { transform: translateX(-100%); }
+		100% { transform: translateX(100%); }
 	}
 
 	.entry-not-found {
