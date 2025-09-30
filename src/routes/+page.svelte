@@ -25,6 +25,7 @@
 	let showMigrationPrompt = false;
 	let migrationStatus = '';
 	let isMigrating = false;
+	let isLoadingEntries = false;
 
 	// Memoized filtered entries to prevent recalculation on every scroll
 	let filteredEntries: Entry[] = [];
@@ -38,6 +39,12 @@
 			updateFilteredEntries();
 		}, 150); // 150ms debounce
 	}
+
+	// Add error boundary for data loading
+	const handleDataLoadError = (error: any) => {
+		console.error('❌ [Data Load Error]:', error);
+		status('Failed to load entries. Please refresh the page.', true);
+	};
 
 	// Update filtered entries when entries or search query changes
 	function updateFilteredEntries() {
@@ -65,20 +72,40 @@
 	// Load entries when user authentication state changes
 	$: if ($auth.user && !$auth.loading) {
 		console.log('📝 Loading entries for authenticated user');
-		loadEntries();
-		// Check for localStorage entries to migrate
-		if (hasLocalStorageEntries()) {
-			showMigrationPrompt = true;
-		}
+		// Use a small delay to ensure auth state is fully settled
+		setTimeout(async () => {
+			try {
+				isLoadingEntries = true;
+				await loadEntries();
+				// Check for localStorage entries to migrate
+				if (hasLocalStorageEntries()) {
+					showMigrationPrompt = true;
+				}
+			} catch (error) {
+				handleDataLoadError(error);
+			} finally {
+				isLoadingEntries = false;
+			}
+		}, 100);
 	}
 
 	// Track if scroll has been restored to prevent multiple restorations
 	let scrollRestored = false;
 
 	onMount(() => {
-		// Only load entries if user is authenticated
-		if ($auth.user) {
-			loadEntries();
+		// Only load entries if user is authenticated and auth is not loading
+		if ($auth.user && !$auth.loading) {
+			// Use a small delay to ensure auth state is fully settled
+			setTimeout(async () => {
+				try {
+					isLoadingEntries = true;
+					await loadEntries();
+				} catch (error) {
+					handleDataLoadError(error);
+				} finally {
+					isLoadingEntries = false;
+				}
+			}, 100);
 		}
 
 		// Restore scroll position from sessionStorage on initial load
@@ -840,6 +867,11 @@
 			<div class="empty-state">
 				<h2>Loading...</h2>
 				<p>Please wait while we initialize the app.</p>
+			</div>
+		{:else if $auth.user && $entries.length === 0 && isLoadingEntries}
+			<div class="empty-state">
+				<h2>Loading Entries...</h2>
+				<p>Please wait while we load your entries.</p>
 			</div>
 		{:else if !$auth.user}
 			<div class="empty-state">

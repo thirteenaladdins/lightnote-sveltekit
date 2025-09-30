@@ -78,15 +78,15 @@ function resolveRedirectUrl() {
 export async function initAuth() {
   console.log('🔐 Initializing auth...');
   
-  // Check if Supabase is configured
-  const { isSupabaseConfigured } = await import('$lib/supabase');
-  if (!isSupabaseConfigured()) {
-    console.log('🔐 Supabase not configured, skipping auth initialization');
-    auth.setLoading(false);
-    return;
-  }
-
   try {
+    // Check if Supabase is configured
+    const { isSupabaseConfigured } = await import('$lib/supabase');
+    if (!isSupabaseConfigured()) {
+      console.log('🔐 Supabase not configured, skipping auth initialization');
+      auth.setLoading(false);
+      return;
+    }
+
     // Get initial session
     console.log('🔐 Getting session...');
     const { data: { session }, error } = await supabase.auth.getSession();
