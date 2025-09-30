@@ -23,29 +23,23 @@ function createAuthStore() {
     setSession: (session: Session | null) => update(state => ({ ...state, session })),
     setLoading: (loading: boolean) => update(state => ({ ...state, loading })),
     signIn: async (email: string) => {
-      // Use production URL for Vercel deployment
-      const baseUrl = window.location.hostname === 'localhost' 
-        ? window.location.origin 
-        : 'https://lightnote-sveltekit.vercel.app';
-      
+      const redirectTo = resolveRedirectUrl();
+
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: `${baseUrl}/auth/callback`
+          emailRedirectTo: redirectTo
         }
       });
       if (error) throw error;
     },
     signInWithProvider: async (provider: 'google' | 'github' | 'apple') => {
-      // Use production URL for Vercel deployment
-      const baseUrl = window.location.hostname === 'localhost' 
-        ? window.location.origin 
-        : 'https://lightnote-sveltekit.vercel.app';
-      
+      const redirectTo = resolveRedirectUrl();
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${baseUrl}/auth/callback`
+          redirectTo
         }
       });
       if (error) throw error;
@@ -59,6 +53,26 @@ function createAuthStore() {
 }
 
 export const auth = createAuthStore();
+
+function resolveRedirectUrl() {
+  if (typeof window === 'undefined') {
+    throw new Error('Redirect URL requested outside of browser context');
+  }
+
+  // Use the current origin so magic links and OAuth callbacks land on the same site the user started from.
+  const origin = window.location.origin.replace(/\/$/, '');
+  
+  // For mobile devices, ensure we use HTTPS if available
+  // This helps with magic link compatibility on mobile browsers
+  const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
+  if (isMobile && origin.startsWith('http://') && window.location.protocol === 'https:') {
+    // If we're on HTTPS but the origin is HTTP, use HTTPS
+    return `https://${window.location.host}/auth/callback`;
+  }
+  
+  return `${origin}/auth/callback`;
+}
 
 // Initialize auth state
 export async function initAuth() {
