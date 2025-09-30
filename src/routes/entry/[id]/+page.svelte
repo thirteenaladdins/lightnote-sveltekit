@@ -57,6 +57,12 @@
 	}
 
 	onMount(async () => {
+		// Check if entry exists from server-side data
+		if (!data.entryExists) {
+			goto('/');
+			return;
+		}
+
 		// Wait a bit for entries to load if they're not available yet
 		if (!currentEntry) {
 			// Try to wait for entries to load
@@ -219,7 +225,13 @@
 	>
 </svelte:head>
 
-{#if !currentEntry}
+{#if !data.entryExists}
+	<div class="entry-not-found">
+		<h2>Entry Not Found</h2>
+		<p>The entry you're looking for doesn't exist or has been deleted.</p>
+		<button class="back-button" on:click={() => goto('/')}> ← Back to Entries </button>
+	</div>
+{:else if !currentEntry}
 	<div class="loading-page">
 		<div class="loading-content">
 			<h2>Loading Entry...</h2>
@@ -390,12 +402,6 @@
 				</div>
 			{/if}
 		</div>
-	</div>
-{:else}
-	<div class="entry-not-found">
-		<h2>Entry Not Found</h2>
-		<p>The entry you're looking for doesn't exist or has been deleted.</p>
-		<button class="back-button" on:click={() => goto('/')}> ← Back to Entries </button>
 	</div>
 {/if}
 
