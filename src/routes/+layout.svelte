@@ -7,6 +7,17 @@
 	import '$lib/utils/console-debug.js';
 	import { auth } from '$lib/stores/auth';
 	import { initAuth } from '$lib/stores/auth';
+	import { get } from 'svelte/store';
+	import { entries } from '$lib/stores/entries-supabase';
+
+	// Track current page to prevent unwanted navigation
+	let currentPage = '';
+
+	// Track page changes
+	$: if ($page.route.id) {
+		currentPage = $page.route.id;
+		console.log('🧭 [Layout] Page changed to:', currentPage);
+	}
 
 	let streak = 0;
 	let editBadge = false;
@@ -18,6 +29,11 @@
 		initTheme();
 		initAuth();
 
+		// Load LLM configuration early to ensure it's available
+		import('$lib/utils/llm').then(({ loadLLMConfigFromStorage }) => {
+			loadLLMConfigFromStorage();
+		});
+
 		// Listen for streak update events
 		const handleStreakUpdate = () => updateStreak();
 		window.addEventListener('updateStreak', handleStreakUpdate);
@@ -25,9 +41,35 @@
 		// Listen for escape key to close mobile menu
 		document.addEventListener('keydown', handleKeydown);
 
+		// Recalculate streak when entries change
+		const unsubscribe = entries.subscribe(() => updateStreak());
+
+		// Handle page visibility changes to prevent unwanted navigation
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				console.log('📱 [Layout] Page became visible, current route:', $page.route.id);
+				// Store current page to prevent unwanted navigation
+				currentPage = $page.route.id || '';
+				console.log('📱 [Layout] Stored current page:', currentPage);
+			}
+		};
+
+		// Handle beforeunload to prevent accidental navigation
+		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+			// Only show confirmation if there are unsaved changes
+			// For now, we'll let the page unload normally
+			return;
+		};
+
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		window.addEventListener('beforeunload', handleBeforeUnload);
+
 		return () => {
 			window.removeEventListener('updateStreak', handleStreakUpdate);
 			document.removeEventListener('keydown', handleKeydown);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			window.removeEventListener('beforeunload', handleBeforeUnload);
+			unsubscribe();
 		};
 	});
 
@@ -43,54 +85,38 @@
 	function ymd(d = new Date()) {
 		// Handle invalid dates
 		if (!(d instanceof Date) || isNaN(d.getTime())) {
-			return new Date().toISOString().slice(0, 10);
+			d = new Date();
 		}
-		return d.toISOString().slice(0, 10);
+		// Use local timezone to avoid UTC day drift
+		return d.toLocaleDateString('en-CA');
 	}
 
 	function updateStreak() {
-		// Calculate streak based on actual entries
-		const entries = JSON.parse(localStorage.getItem('lightnote.entries.v1') || '[]');
-		// Filter out entries with invalid created timestamps
-		const validEntries = entries.filter(
+		// Calculate streak based on entries in the store (Supabase or local fallback)
+		const items = get(entries) || [];
+		const validEntries = items.filter(
 			(entry: any) =>
 				entry && typeof entry.created === 'number' && !isNaN(new Date(entry.created).getTime())
 		);
-		const today = ymd();
-		let currentStreak = 0;
 
-		// Check if there are entries today
-		const hasEntryToday = validEntries.some((entry: any) => {
-			const entryDate = ymd(new Date(entry.created));
-			return entryDate === today;
-		});
-
-		if (hasEntryToday) {
-			// Start counting from today backwards
-			let checkDate = new Date();
-			let consecutiveDays = 0;
-
-			while (true) {
-				const dateStr = ymd(checkDate);
-				const hasEntryOnDate = validEntries.some((entry: any) => {
-					const entryDate = ymd(new Date(entry.created));
-					return entryDate === dateStr;
-				});
-
-				if (hasEntryOnDate) {
-					consecutiveDays++;
-					// Move to previous day
-					checkDate.setDate(checkDate.getDate() - 1);
-				} else {
-					break;
-				}
-			}
-
-			currentStreak = consecutiveDays;
-		} else {
-			// No entry today, streak is 0
-			currentStreak = 0;
+		// Precompute a set of date keys that have at least one entry
+		const datesWithEntries = new Set<string>();
+		for (const e of validEntries) {
+			datesWithEntries.add(ymd(new Date(e.created)));
 		}
+
+		let currentStreak = 0;
+		let checkDate = new Date();
+		while (true) {
+			const dateKey = ymd(checkDate);
+			if (datesWithEntries.has(dateKey)) {
+				currentStreak++;
+				checkDate.setDate(checkDate.getDate() - 1);
+			} else {
+				break;
+			}
+		}
+
 		streak = currentStreak;
 	}
 
@@ -369,6 +395,10 @@
 		cursor: pointer;
 		transition: all 0.2s;
 		margin-right: 8px;
+		min-height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.sign-out-button:hover {

@@ -32,10 +32,33 @@
 	let analysisEnabled = true;
 
 	onMount(() => {
+		console.log('⚙️ [Settings] Page mounted');
+
 		// Load any existing configuration from localStorage for migration
 		loadLLMConfigFromStorage();
 		loadLlmSettings();
 		loadUserSettings();
+
+		// Add debugging for page visibility changes
+		const handleVisibilityChange = () => {
+			console.log('⚙️ [Settings] Visibility changed:', document.visibilityState);
+			if (document.visibilityState === 'visible') {
+				console.log('⚙️ [Settings] Page became visible, staying on settings');
+			}
+		};
+
+		// Add debugging for page focus
+		const handleFocus = () => {
+			console.log('⚙️ [Settings] Page focused, current URL:', window.location.href);
+		};
+
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		window.addEventListener('focus', handleFocus);
+
+		return () => {
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			window.removeEventListener('focus', handleFocus);
+		};
 	});
 
 	// Load user settings from store
@@ -71,23 +94,51 @@
 
 	function loadLlmSettings() {
 		const config = getLLMConfig();
+		const hasEnvVars = !!(import.meta.env.VITE_LLM_URL && import.meta.env.VITE_LLM_MODEL);
+
+		console.log('⚙️ [Settings] Loading LLM settings:', {
+			url: config.url,
+			model: config.model,
+			hasToken: !!config.token,
+			timeout: config.timeout,
+			isConfigured: isLLMConfigured(),
+			usingEnvVars: hasEnvVars
+		});
+
 		llmUrl = config.url;
 		llmToken = config.token;
 		llmModel = config.model;
 		llmTimeout = config.timeout.toString();
+
+		// Show a message if using environment variables
+		if (hasEnvVars) {
+			llmStatus = 'Using environment variables for LLM configuration';
+			setTimeout(() => {
+				llmStatus = '';
+			}, 3000);
+		}
 	}
 
 	function saveLlmSettings() {
-		setLLMConfig({
-			url: llmUrl.trim(),
-			token: llmToken.trim(),
-			model: llmModel.trim(),
-			timeout: parseInt(llmTimeout) || 60000
-		});
-		llmStatus = 'LLM settings saved securely in memory!';
+		try {
+			setLLMConfig({
+				url: llmUrl.trim(),
+				token: llmToken.trim(),
+				model: llmModel.trim(),
+				timeout: parseInt(llmTimeout) || 60000
+			});
+			llmStatus = 'LLM settings saved successfully!';
+			console.log('⚙️ [Settings] LLM configuration saved');
+		} catch (error) {
+			llmStatus =
+				'Failed to save LLM settings: ' +
+				(error instanceof Error ? error.message : 'Unknown error');
+			console.error('⚙️ [Settings] Failed to save LLM config:', error);
+		}
+
 		setTimeout(() => {
 			llmStatus = '';
-		}, 3000);
+		}, 5000);
 	}
 
 	async function testLlmConnection() {
@@ -340,6 +391,15 @@ DATA & PRIVACY
 	<details class="card llm-settings" bind:open={showLlmSettings}>
 		<summary><b>LLM Settings</b></summary>
 		<div class="row" style="margin-top: 10px; flex-direction: column; gap: 8px">
+			{#if import.meta.env.VITE_LLM_URL && import.meta.env.VITE_LLM_MODEL}
+				<div
+					class="smallnote"
+					style="background: var(--accent-alpha); border: 1px solid var(--accent); padding: 8px; border-radius: 4px; margin-bottom: 8px;"
+				>
+					🔧 <strong>Using environment variables</strong><br />
+					Configuration is loaded from .env file. Changes here will override env vars.
+				</div>
+			{/if}
 			<label>
 				Endpoint URL<br />
 				<input bind:value={llmUrl} placeholder="https://api.together.xyz/v1/chat/completions" />

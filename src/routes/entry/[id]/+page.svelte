@@ -71,7 +71,7 @@
 		// Check if entry exists from server-side data
 		if (!data.entryExists) {
 			loadingMessage = 'Entry not found';
-			await new Promise(resolve => setTimeout(resolve, 1000)); // Show message briefly
+			await new Promise((resolve) => setTimeout(resolve, 1000)); // Show message briefly
 			goto('/');
 			return;
 		}
@@ -82,13 +82,14 @@
 			loadingProgress = 0;
 			// Try to wait for entries to load
 			let attempts = 0;
-			while (!currentEntry && attempts < 20) { // Increased attempts
+			while (!currentEntry && attempts < 20) {
+				// Increased attempts
 				await new Promise((resolve) => setTimeout(resolve, 100));
 				attempts++;
-				
+
 				// Update loading message and progress based on progress
 				loadingProgress = Math.min((attempts / 20) * 100, 90);
-				
+
 				if (attempts < 5) {
 					loadingMessage = 'Loading entry...';
 				} else if (attempts < 10) {
@@ -100,7 +101,7 @@
 
 			if (!currentEntry) {
 				loadingMessage = 'Entry not found';
-				await new Promise(resolve => setTimeout(resolve, 1000));
+				await new Promise((resolve) => setTimeout(resolve, 1000));
 				goto('/');
 				return;
 			}
@@ -110,10 +111,10 @@
 		loadingMessage = 'Preparing entry...';
 		loadingProgress = 95;
 		await initializeQuoteHighlighting();
-		
+
 		// Mark page as loaded
 		loadingProgress = 100;
-		await new Promise(resolve => setTimeout(resolve, 200)); // Brief delay to show completion
+		await new Promise((resolve) => setTimeout(resolve, 200)); // Brief delay to show completion
 		isPageLoading = false;
 	});
 
@@ -286,7 +287,18 @@
 			<div class="header-left">
 				<button class="back-button" on:click={() => goto('/')}> ← Back to Entries </button>
 				<div class="entry-meta">
-					<span class="entry-date">{formatDate(currentEntry.created)}</span>
+					<div class="entry-dates">
+						<div class="entry-date">
+							<strong>Created:</strong>
+							{formatDate(currentEntry.created)}
+						</div>
+						{#if currentEntry.updated && currentEntry.updated !== currentEntry.created}
+							<div class="entry-updated">
+								<strong>Updated:</strong>
+								{formatDate(currentEntry.updated)}
+							</div>
+						{/if}
+					</div>
 					<span class="entry-id">{currentEntry.id?.slice(0, 8) || 'unknown'}</span>
 				</div>
 			</div>
@@ -497,8 +509,35 @@
 		color: var(--muted);
 	}
 
-	.entry-date {
-		font-weight: 500;
+	.entry-dates {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.entry-date,
+	.entry-updated {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+
+	.entry-date strong {
+		color: var(--text);
+		font-weight: 600;
+		min-width: 60px;
+	}
+
+	.entry-updated {
+		color: #7dd3fc !important; /* light blue */
+	}
+
+	.entry-updated strong {
+		color: #7dd3fc; /* light blue */
+		font-weight: 600;
+		min-width: 60px;
 	}
 
 	.entry-id {
@@ -507,6 +546,11 @@
 		padding: 2px 6px;
 		border-radius: 4px;
 		border: 1px solid var(--border);
+	}
+
+	.entry-updated {
+		color: var(--muted);
+		font-style: italic;
 	}
 
 	.header-actions {
@@ -625,8 +669,12 @@
 	}
 
 	@keyframes shimmer {
-		0% { transform: translateX(-100%); }
-		100% { transform: translateX(100%); }
+		0% {
+			transform: translateX(-100%);
+		}
+		100% {
+			transform: translateX(100%);
+		}
 	}
 
 	.entry-not-found {

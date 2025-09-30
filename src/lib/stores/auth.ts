@@ -25,6 +25,8 @@ function createAuthStore() {
     signIn: async (email: string) => {
       const redirectTo = resolveRedirectUrl();
 
+      console.log('🔐 [Auth] Sending magic link with redirect URL:', redirectTo);
+
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -35,6 +37,8 @@ function createAuthStore() {
     },
     signInWithProvider: async (provider: 'google' | 'github' | 'apple') => {
       const redirectTo = resolveRedirectUrl();
+
+      console.log('🔐 [Auth] OAuth login with redirect URL:', redirectTo);
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
@@ -62,6 +66,9 @@ function resolveRedirectUrl() {
   // Use the current origin so magic links and OAuth callbacks land on the same site the user started from.
   const origin = window.location.origin.replace(/\/$/, '');
   
+  // Check if we're in development mode
+  const isDevelopment = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('0.0.0.0');
+  
   // For mobile devices, ensure we use HTTPS if available
   // This helps with magic link compatibility on mobile browsers
   const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -71,7 +78,18 @@ function resolveRedirectUrl() {
     return `https://${window.location.host}/auth/callback`;
   }
   
-  return `${origin}/auth/callback`;
+  // Always use the current origin for redirects
+  const redirectUrl = `${origin}/auth/callback`;
+  
+  console.log('🔐 [Auth] Resolved redirect URL:', {
+    origin,
+    redirectUrl,
+    isDevelopment,
+    isMobile,
+    userAgent: navigator.userAgent.substring(0, 50) + '...'
+  });
+  
+  return redirectUrl;
 }
 
 // Initialize auth state

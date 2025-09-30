@@ -522,6 +522,7 @@ export function getAllEntriesWithAnalysis(): Entry[] {
 // Subscribe to auth changes and reload entries when user changes
 auth.subscribe(({ user, loading }) => {
   if (!loading) {
+    console.log('📝 [Entries] Auth state changed, user:', user ? 'authenticated' : 'not authenticated');
     if (user) {
       loadEntries();
     } else {

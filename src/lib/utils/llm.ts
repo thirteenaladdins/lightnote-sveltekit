@@ -1,6 +1,6 @@
 // llm.ts — LLM integration utilities (OpenAI-compatible, with fallback parsing)
 
-// In-memory storage for sensitive LLM configuration
+// In-memory storage for LLM configuration
 let llmConfig: {
   url: string;
   token: string;
@@ -12,6 +12,31 @@ let llmConfig: {
   model: "",
   timeout: 60000
 };
+
+// Initialize with environment variables if available
+function initializeFromEnv() {
+  if (typeof window !== 'undefined') {
+    const envUrl = import.meta.env.VITE_LLM_URL;
+    const envToken = import.meta.env.VITE_LLM_TOKEN;
+    const envModel = import.meta.env.VITE_LLM_MODEL;
+    const envTimeout = import.meta.env.VITE_LLM_TIMEOUT;
+    
+    if (envUrl) llmConfig.url = envUrl;
+    if (envToken) llmConfig.token = envToken;
+    if (envModel) llmConfig.model = envModel;
+    if (envTimeout) llmConfig.timeout = parseInt(envTimeout) || 60000;
+    
+    console.log('🔧 [LLM] Initialized from environment variables:', {
+      url: llmConfig.url,
+      model: llmConfig.model,
+      hasToken: !!llmConfig.token,
+      timeout: llmConfig.timeout
+    });
+  }
+}
+
+// Initialize on module load
+initializeFromEnv();
 
 /**
  * Ask the configured LLM endpoint for a response.
@@ -127,7 +152,7 @@ export function parseJSONLoose(s: string): any {
 }
 
 /**
- * Set LLM configuration in memory (secure)
+ * Set LLM configuration in memory and persist to localStorage
  */
 export function setLLMConfig(config: {
   url: string;
@@ -136,13 +161,34 @@ export function setLLMConfig(config: {
   timeout: number;
 }): void {
   llmConfig = { ...config };
+  
+  // Persist to localStorage for persistence across page reloads
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem("ln.llm.url", config.url);
+      localStorage.setItem("ln.llm.model", config.model);
+      localStorage.setItem("ln.llm.timeout", config.timeout.toString());
+      // Store token securely (in a real app, consider using a more secure method)
+      localStorage.setItem("ln.llm.token", config.token);
+      console.log("💾 [LLM] Configuration saved to localStorage");
+    } catch (error) {
+      console.error("Failed to save LLM config to localStorage:", error);
+    }
+  }
 }
 
 /**
  * Check if LLM is configured
  */
 export function isLLMConfigured(): boolean {
-  return !!(llmConfig.url && llmConfig.model);
+  const configured = !!(llmConfig.url && llmConfig.model);
+  console.log('🤖 [LLM] isLLMConfigured check:', {
+    url: llmConfig.url,
+    model: llmConfig.model,
+    hasToken: !!llmConfig.token,
+    configured
+  });
+  return configured;
 }
 
 /**
@@ -158,21 +204,43 @@ export function getLLMConfig(): {
 }
 
 /**
- * Load LLM configuration from localStorage (for migration/backward compatibility)
- * Only loads non-sensitive configuration, requires manual token setting
+ * Load LLM configuration from localStorage
  */
 export function loadLLMConfigFromStorage(): void {
   if (typeof window !== 'undefined') {
-    const url = localStorage.getItem("ln.llm.url");
-    const model = localStorage.getItem("ln.llm.model");
-    const timeout = +(localStorage.getItem("ln.llm.timeout") || "60000");
+    // First, try to load from environment variables
+    initializeFromEnv();
     
-    if (url || model) {
-      llmConfig.url = url || "";
-      llmConfig.model = model || "";
-      llmConfig.timeout = timeout;
-      // Note: token is not loaded from localStorage for security
-      console.log("Loaded LLM config from storage (excluding token for security)");
+    // If no env vars, fall back to localStorage
+    if (!llmConfig.url || !llmConfig.model) {
+      const url = localStorage.getItem("ln.llm.url");
+      const model = localStorage.getItem("ln.llm.model");
+      const token = localStorage.getItem("ln.llm.token");
+      const timeout = +(localStorage.getItem("ln.llm.timeout") || "60000");
+      
+      console.log("💾 [LLM] Loading from localStorage (fallback):", {
+        url,
+        model,
+        hasToken: !!token,
+        timeout
+      });
+      
+      if (url || model) {
+        llmConfig.url = url || "";
+        llmConfig.model = model || "";
+        llmConfig.token = token || "";
+        llmConfig.timeout = timeout;
+        console.log("💾 [LLM] Loaded configuration from localStorage:", {
+          url: llmConfig.url,
+          model: llmConfig.model,
+          hasToken: !!llmConfig.token,
+          timeout: llmConfig.timeout
+        });
+      } else {
+        console.log("💾 [LLM] No configuration found in localStorage");
+      }
+    } else {
+      console.log("💾 [LLM] Using environment variables, skipping localStorage");
     }
   }
 }

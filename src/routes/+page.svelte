@@ -718,6 +718,7 @@
 
 	// Restore scroll position when returning to the page (only if not already restored)
 	$: if (browser && $page.url.pathname === '/' && entriesContainer && !scrollRestored) {
+		console.log('🏠 [Home] Restoring scroll position');
 		// Restore immediately to prevent visible scrolling
 		restoreScrollPosition();
 	}
